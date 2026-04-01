@@ -1,0 +1,46 @@
+# Douban2Soul .gitignore
+
+# Data files - do not commit user data
+*.json
+!package.json
+!package-lock.json
+
+# Cache
+cache/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Output
+output/
+
+# Virtual environment
+venv/
+env/
+ENV/
+.venv/
+
+# Environment variable files
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
