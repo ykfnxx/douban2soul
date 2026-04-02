@@ -187,3 +187,47 @@ class TestBatchScraper:
         scraper.scrape("x")
         # Verify the original dict was not mutated
         assert "_cached_at" not in fake_adapter.data["x"]
+
+    def test_resume_with_lost_cache(self, scraper: FieldLevelScraper,
+                                     fake_adapter: FakeAdapter,
+                                     tmp_path: Path) -> None:
+        """Checkpoint exists but cache file is gone — IDs should be re-fetched."""
+        fake_adapter.data["a"] = SAMPLE_RAW.copy()
+        fake_adapter.data["b"] = SAMPLE_RAW.copy()
+        resume_file = str(tmp_path / "job.json")
+
+        batch = BatchScraper(scraper=scraper, resume_file=resume_file)
+        batch.run(["a", "b"], show_progress=False)
+
+        # Nuke the cache (simulate file deletion / expiry)
+        scraper.cache._data.clear()
+
+        # Resume — "a" and "b" should be re-fetched, not silently lost
+        summary = batch.run(["a", "b"], resume=True, show_progress=False)
+        result_ids = {r["movie_id"] for r in summary["results"]}
+        assert result_ids == {"a", "b"}
+        # They were re-fetched, not from cache
+        assert summary["cached"] == 0
+
+    def test_resume_with_refresh_cache(self, scraper: FieldLevelScraper,
+                                        fake_adapter: FakeAdapter,
+                                        tmp_cache: MetadataCache,
+                                        tmp_path: Path) -> None:
+        """--resume --refresh-cache: expired cache entries get re-fetched."""
+        fake_adapter.data["a"] = SAMPLE_RAW.copy()
+        resume_file = str(tmp_path / "job.json")
+
+        batch = BatchScraper(scraper=scraper, resume_file=resume_file)
+        batch.run(["a"], show_progress=False)
+
+        # Simulate --refresh-cache by creating a zero-TTL cache
+        expired_cache = MetadataCache(path=str(tmp_cache._path), ttl_days=0)
+        fresh_scraper = FieldLevelScraper(cache=expired_cache)
+        fresh_scraper._adapter = fake_adapter
+
+        batch2 = BatchScraper(scraper=fresh_scraper, resume_file=resume_file)
+        summary = batch2.run(["a"], resume=True, show_progress=False)
+
+        # "a" was in checkpoint but cache expired, so it's re-fetched
+        assert len(summary["results"]) == 1
+        assert summary["cached"] == 0

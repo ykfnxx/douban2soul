@@ -70,17 +70,25 @@ class BatchScraper:
         field_hits: dict[str, int] = defaultdict(int)
 
         # Replay previously completed IDs from cache so the output is complete.
+        # If cache is missing/expired for a checkpoint ID, demote it back to pending.
         if resume and completed:
+            still_completed: set[str] = set()
             for mid in movie_ids:
                 if mid not in completed:
                     continue
-                result = self._scraper.scrape(mid)  # will hit cache
-                if result["fetch_success"]:
+                cached_raw = self._scraper.cache.get(mid)
+                if cached_raw is not None:
+                    result = self._scraper.scrape(mid)  # guaranteed cache hit
                     success_list.append(result)
                     cached_count += 1
+                    still_completed.add(mid)
                     for field, info in result["fields"].items():
                         if info["present"]:
                             field_hits[field] += 1
+                else:
+                    # Cache lost/expired — need to re-fetch.
+                    pending.append(mid)
+            completed = still_completed
 
         # Process pending IDs.
         total_pending = len(pending)
