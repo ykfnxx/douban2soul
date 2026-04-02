@@ -1,127 +1,135 @@
-#!/usr/bin/env python3
 """
-Metadata Fetcher
-Multi-source strategy: wmdb.tv (primary) + TMDB (fallback) + Douban direct (last resort)
+Field-level metadata scraper (V1).
+
+Fetches movie metadata from a single source (wmdb) and returns a
+per-field result structure with provenance tracking.
 """
 
-import json
-import time
-import random
-import requests
-from pathlib import Path
-from typing import Dict, Optional, List
+import logging
+from typing import Optional
+
+from douban2soul.scraping.adapters import get_adapter
+from douban2soul.scraping.adapters.base import BaseMetadataAdapter
+from douban2soul.scraping.cache import MetadataCache
+
+logger = logging.getLogger(__name__)
+
+# Fields we care about and whether they are required for analysis.
+FIELD_CONFIG: dict[str, bool] = {
+    "genre": True,
+    "director": True,
+    "country": True,
+    "cast": False,
+    "duration": False,
+    "douban_rating": False,
+    "rating_count": False,
+}
 
 
-class MetadataFetcher:
-    """Movie metadata fetcher"""
+class FieldLevelScraper:
+    """
+    Scrape metadata and return a field-level result for each movie.
 
-    def __init__(self, cache_file: str = "cache/metadata_cache.json"):
-        self.cache_file = Path(cache_file)
-        self.cache = self._load_cache()
-        self.session = requests.Session()
-        self.delay = 1.0  # base delay in seconds
+    ``fetch_success`` indicates whether the HTTP request succeeded and
+    returned parseable data.  Individual fields may still be missing
+    even when the fetch succeeds; ``core_fields_present`` counts how
+    many of the required fields were found.
 
-    def _load_cache(self) -> Dict:
-        """Load cache from file"""
-        if self.cache_file.exists():
-            try:
-                with open(self.cache_file, 'r', encoding='utf-8') as f:
-                    return json.load(f)
-            except Exception:
-                return {}
-        return {}
+    Parameters
+    ----------
+    adapter_name:
+        Registered adapter name (default ``"wmdb"``).
+    cache:
+        An optional pre-configured ``MetadataCache``.
+    """
 
-    def _save_cache(self):
-        """Save cache to file"""
-        self.cache_file.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.cache_file, 'w', encoding='utf-8') as f:
-            json.dump(self.cache, f, ensure_ascii=False, indent=2)
+    def __init__(
+        self,
+        adapter_name: str = "wmdb",
+        cache: Optional[MetadataCache] = None,
+    ) -> None:
+        self._adapter: BaseMetadataAdapter = get_adapter(adapter_name)
+        self._cache: MetadataCache = cache or MetadataCache()
 
-    def _is_valid(self, data) -> bool:
-        """Check if data is valid"""
-        if not data:
-            return False
-        if isinstance(data, dict):
-            return "data" in data or "genre" in data or "director" in data
-        return False
+    @property
+    def cache(self) -> MetadataCache:
+        return self._cache
 
-    def fetch_wmdb(self, douban_id: str) -> Optional[Dict]:
+    def scrape(self, movie_id: str) -> dict:
         """
-        Fetch metadata from wmdb.tv
-        Source: https://api.wmdb.tv/movie/api?id={id}
+        Scrape metadata for *movie_id*.
+
+        Returns a dict with keys:
+            movie_id, fetch_success, fields, core_fields_present,
+            all_fields_present, raw_data, error (on failure).
         """
-        url = f"https://api.wmdb.tv/movie/api?id={douban_id}"
+        cached = self._cache.get(movie_id)
+        if cached is not None:
+            return self._result_from_raw(movie_id, cached, source="cache")
 
         try:
-            time.sleep(self.delay + random.uniform(0, 1))
-            resp = self.session.get(url, timeout=15)
+            raw = self._adapter.fetch(movie_id)
+        except Exception as exc:
+            logger.error("Unexpected error scraping %s: %s", movie_id, exc)
+            return self._error_result(movie_id, str(exc))
 
-            if resp.status_code == 429:
-                print("  Rate limited, pausing for 60s...")
-                time.sleep(60)
-                return self.fetch_wmdb(douban_id)
+        if raw is None:
+            return self._error_result(movie_id, "empty_response")
 
-            if resp.status_code == 200:
-                data = resp.json()
-                if data and 'data' in data and len(data['data']) > 0:
-                    movie = data['data'][0]
-                    return {
-                        'title': movie.get('name'),
-                        'original_title': movie.get('originalName'),
-                        'year': movie.get('year'),
-                        'genre': [g.strip() for g in movie.get('genre', '').split('/') if g.strip()],
-                        'director': movie.get('director', []),
-                        'actor': movie.get('actor', [])[:10],
-                        'country': movie.get('country', ''),
-                        'douban_rating': movie.get('doubanScore'),
-                        'duration': movie.get('duration'),
-                        'source': 'wmdb'
-                    }
-        except Exception as e:
-            print(f"  wmdb error: {e}")
+        self._cache.set(movie_id, raw)
+        return self._result_from_raw(movie_id, raw, source=self._adapter.name)
 
-        return None
+    # ------------------------------------------------------------------
+    # Result formatting
+    # ------------------------------------------------------------------
 
-    def fetch(self, douban_id: str, title: str = "", year: str = "") -> Dict:
-        """
-        Smart metadata fetching with cache
+    def _result_from_raw(self, movie_id: str, raw: dict, *, source: str) -> dict:
+        fields: dict[str, dict] = {}
+        core_present = 0
+        all_present = 0
 
-        Strategy:
-        1. Check cache first
-        2. Try wmdb.tv
-        3. Return empty structure on failure
-        """
-        if douban_id in self.cache and self._is_valid(self.cache[douban_id]):
-            return self.cache[douban_id]
+        for field, required in FIELD_CONFIG.items():
+            value = raw.get(field)
+            present = _has_value(value)
+            fields[field] = {
+                "value": value if present else None,
+                "present": present,
+                "source": source if present else None,
+            }
+            if present:
+                all_present += 1
+                if required:
+                    core_present += 1
 
-        data = self.fetch_wmdb(douban_id)
+        return {
+            "movie_id": movie_id,
+            "fetch_success": True,
+            "fields": fields,
+            "core_fields_present": core_present,
+            "all_fields_present": all_present,
+            "raw_data": raw,
+        }
 
-        self.cache[douban_id] = data or {"_failed": True}
-        self._save_cache()
+    @staticmethod
+    def _error_result(movie_id: str, error: str) -> dict:
+        fields = {
+            f: {"value": None, "present": False, "source": None}
+            for f in FIELD_CONFIG
+        }
+        return {
+            "movie_id": movie_id,
+            "fetch_success": False,
+            "fields": fields,
+            "core_fields_present": 0,
+            "all_fields_present": 0,
+            "raw_data": None,
+            "error": error,
+        }
 
-        return self.cache[douban_id]
 
-    def batch_fetch(self, movie_ids: List[str], progress_interval: int = 10):
-        """
-        Batch fetch metadata
-
-        Args:
-            movie_ids: List of Douban movie IDs
-            progress_interval: Progress print interval
-        """
-        results = {}
-        total = len(movie_ids)
-        cached = sum(1 for mid in movie_ids if mid in self.cache and self._is_valid(self.cache.get(mid)))
-
-        print(f"Batch fetching metadata: {total} total, {cached} cached")
-
-        for i, mid in enumerate(movie_ids):
-            if i % progress_interval == 0:
-                print(f"  Progress: {i}/{total} ({i/total*100:.1f}%)")
-
-            result = self.fetch(mid)
-            if result and not result.get("_failed"):
-                results[mid] = result
-
-        print(f"Done: successfully fetched {len(results)} movies")
-        return results
+def _has_value(value: object) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, (str, list)) and len(value) == 0:
+        return False
+    return True
