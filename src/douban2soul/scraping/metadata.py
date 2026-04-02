@@ -49,7 +49,7 @@ class FieldLevelScraper:
         cache: Optional[MetadataCache] = None,
     ) -> None:
         self._adapter: BaseMetadataAdapter = get_adapter(adapter_name)
-        self._cache: MetadataCache = cache or MetadataCache()
+        self._cache: MetadataCache = cache if cache is not None else MetadataCache()
 
     @property
     def cache(self) -> MetadataCache:

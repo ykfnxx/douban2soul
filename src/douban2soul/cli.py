@@ -135,14 +135,15 @@ def cmd_scrape(args: argparse.Namespace) -> int:
     for field, rate in sorted(summary["coverage"].items()):
         print(f"  {field:20s} {rate:6.1%}")
 
-    # Save results
+    # Save results (strip cache internals from exported data)
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    results_data = {
-        r["movie_id"]: r["raw_data"]
-        for r in summary["results"]
-        if r.get("raw_data")
-    }
+    results_data = {}
+    for r in summary["results"]:
+        raw = r.get("raw_data")
+        if raw:
+            clean = {k: v for k, v in raw.items() if not k.startswith("_")}
+            results_data[r["movie_id"]] = clean
     with open(output_path, "w", encoding="utf-8") as fh:
         json.dump(results_data, fh, ensure_ascii=False, indent=2)
     print(f"\nMetadata saved to: {output_path}")

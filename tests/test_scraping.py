@@ -141,21 +141,49 @@ class TestBatchScraper:
         assert summary["total"] == 3
         assert summary["coverage"]["genre"] > 0
 
-    def test_resume(self, scraper: FieldLevelScraper, fake_adapter: FakeAdapter,
-                    tmp_path: Path) -> None:
+    def test_resume_returns_full_results(self, scraper: FieldLevelScraper,
+                                         fake_adapter: FakeAdapter,
+                                         tmp_path: Path) -> None:
         fake_adapter.data["a"] = SAMPLE_RAW.copy()
         fake_adapter.data["b"] = SAMPLE_RAW.copy()
         resume_file = str(tmp_path / "job.json")
 
         batch = BatchScraper(scraper=scraper, resume_file=resume_file)
 
-        # First run - only "a" and "b" succeed
+        # First run - "a" and "b" succeed
         batch.run(["a", "b"], show_progress=False)
 
-        # Second run with resume - "a" and "b" already done, "c" is new
+        # Second run with resume - "a" and "b" from checkpoint, "c" is new
         fake_adapter.data["c"] = SAMPLE_RAW.copy()
         summary = batch.run(["a", "b", "c"], resume=True, show_progress=False)
 
-        # Only "c" was pending
-        assert len(summary["results"]) == 1
-        assert summary["results"][0]["movie_id"] == "c"
+        # All three should be in results (complete set, not just delta)
+        result_ids = {r["movie_id"] for r in summary["results"]}
+        assert result_ids == {"a", "b", "c"}
+        assert len(summary["results"]) == 3
+
+    def test_cached_count_only_real_hits(self, scraper: FieldLevelScraper,
+                                         fake_adapter: FakeAdapter,
+                                         tmp_path: Path) -> None:
+        fake_adapter.data["a"] = SAMPLE_RAW.copy()
+        fake_adapter.data["b"] = SAMPLE_RAW.copy()
+        resume_file = str(tmp_path / "job.json")
+
+        batch = BatchScraper(scraper=scraper, resume_file=resume_file)
+
+        # Fresh run - nothing is cached yet
+        summary = batch.run(["a", "b"], show_progress=False)
+        assert summary["cached"] == 0
+
+        # Second run without resume but cache is warm
+        summary2 = batch.run(["a", "b"], show_progress=False)
+        assert summary2["cached"] == 2
+
+    def test_cache_internals_not_in_raw_data(self, scraper: FieldLevelScraper,
+                                              fake_adapter: FakeAdapter) -> None:
+        fake_adapter.data["x"] = SAMPLE_RAW.copy()
+
+        # Scrape once (populates cache)
+        scraper.scrape("x")
+        # Verify the original dict was not mutated
+        assert "_cached_at" not in fake_adapter.data["x"]

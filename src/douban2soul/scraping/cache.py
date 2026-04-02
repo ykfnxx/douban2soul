@@ -49,8 +49,8 @@ class MetadataCache:
         return entry
 
     def set(self, movie_id: str, data: dict) -> None:
-        data["_cached_at"] = datetime.now().isoformat()
-        self._data[movie_id] = data
+        entry = {**data, "_cached_at": datetime.now().isoformat()}
+        self._data[movie_id] = entry
         self._dirty += 1
         if self._dirty >= _FLUSH_INTERVAL:
             self.flush()

@@ -4,7 +4,6 @@ Batch metadata scraper with progress bar and resume support.
 
 import json
 import logging
-import time
 from collections import defaultdict
 from pathlib import Path
 from typing import Optional
@@ -17,7 +16,6 @@ from rich.progress import (
     TimeRemainingColumn,
 )
 
-from douban2soul.scraping.cache import MetadataCache
 from douban2soul.scraping.metadata import FIELD_CONFIG, FieldLevelScraper
 
 logger = logging.getLogger(__name__)
@@ -34,6 +32,9 @@ class BatchScraper:
     - Rich progress bar with success/fail counters and ETA
     - ``--resume`` support via a checkpoint file
     - Field-level coverage statistics
+
+    On resume, previously completed IDs are re-read from cache so that
+    the returned result set is always *complete* (not just the delta).
     """
 
     def __init__(
@@ -54,18 +55,8 @@ class BatchScraper:
         """
         Scrape *movie_ids* and return an aggregate result dict.
 
-        Parameters
-        ----------
-        movie_ids:
-            Douban movie IDs to scrape.
-        resume:
-            If True, skip IDs recorded in the checkpoint file.
-        show_progress:
-            Show a Rich progress bar (disable for tests or non-TTY).
-
-        Returns
-        -------
-        dict with keys: results, failed, cached, coverage.
+        The returned ``results`` list always covers all successfully
+        scraped IDs (including those restored from a prior checkpoint).
         """
         completed = self._load_checkpoint() if resume else set()
         if not resume:
@@ -78,48 +69,67 @@ class BatchScraper:
         cached_count = 0
         field_hits: dict[str, int] = defaultdict(int)
 
-        total = len(pending)
-        if total == 0:
-            return self._summary(success_list, failed_list, cached_count, field_hits, len(movie_ids))
-
-        progress_ctx = _build_progress() if show_progress else _noop_progress()
-        with progress_ctx as progress:
-            task = progress.add_task(
-                "Scraping metadata",
-                total=total,
-                success=0,
-                failed=0,
-            ) if show_progress else None
-
-            for i, movie_id in enumerate(pending):
-                result = self._scraper.scrape(movie_id)
-
+        # Replay previously completed IDs from cache so the output is complete.
+        if resume and completed:
+            for mid in movie_ids:
+                if mid not in completed:
+                    continue
+                result = self._scraper.scrape(mid)  # will hit cache
                 if result["fetch_success"]:
                     success_list.append(result)
-                    completed.add(movie_id)
-                    if result.get("raw_data", {}).get("_cached_at"):
-                        cached_count += 1
+                    cached_count += 1
                     for field, info in result["fields"].items():
                         if info["present"]:
                             field_hits[field] += 1
-                else:
-                    failed_list.append(movie_id)
 
-                if task is not None:
-                    progress.update(
-                        task,
-                        advance=1,
-                        success=len(success_list),
-                        failed=len(failed_list),
-                    )
+        # Process pending IDs.
+        total_pending = len(pending)
+        if total_pending > 0:
+            progress_ctx = _build_progress() if show_progress else _noop_progress()
+            with progress_ctx as progress:
+                task = progress.add_task(
+                    "Scraping metadata",
+                    total=total_pending,
+                    success=0,
+                    failed=0,
+                ) if show_progress else None
 
-                if (i + 1) % _CHECKPOINT_INTERVAL == 0:
-                    self._save_checkpoint(completed)
+                for i, movie_id in enumerate(pending):
+                    result = self._scraper.scrape(movie_id)
+
+                    if result["fetch_success"]:
+                        success_list.append(result)
+                        completed.add(movie_id)
+                        # A true cache hit has source="cache" on its fields.
+                        if any(
+                            f["source"] == "cache"
+                            for f in result["fields"].values()
+                            if f["present"]
+                        ):
+                            cached_count += 1
+                        for field, info in result["fields"].items():
+                            if info["present"]:
+                                field_hits[field] += 1
+                    else:
+                        failed_list.append(movie_id)
+
+                    if task is not None:
+                        progress.update(
+                            task,
+                            advance=1,
+                            success=len(success_list),
+                            failed=len(failed_list),
+                        )
+
+                    if (i + 1) % _CHECKPOINT_INTERVAL == 0:
+                        self._save_checkpoint(completed)
 
         self._save_checkpoint(completed)
         self._scraper.cache.flush()
 
-        return self._summary(success_list, failed_list, cached_count, field_hits, len(movie_ids))
+        return self._summary(
+            success_list, failed_list, cached_count, field_hits, len(movie_ids),
+        )
 
     # ------------------------------------------------------------------
     # Checkpoint helpers
