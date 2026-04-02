@@ -47,3 +47,6 @@ logs/
 
 # Research survey (local only)
 .survey/
+
+# Design documents (local only)
+.design/
