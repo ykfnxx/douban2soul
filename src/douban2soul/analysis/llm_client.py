@@ -150,27 +150,17 @@ class DeepSeekClient(BaseLLMClient):
 class LLMClientFactory:
     """LLM client factory"""
 
+    PROVIDERS = {
+        "openai": OpenAIClient,
+        "moonshot": MoonshotClient,
+        "dashscope": DashScopeClient,
+        "deepseek": DeepSeekClient,
+    }
+
     @staticmethod
     def create(config: AnalysisConfig) -> BaseLLMClient:
         """Create an LLM client for the specified provider"""
-        if config.llm_provider == "openai":
-            return OpenAIClient(config)
-        elif config.llm_provider == "moonshot":
-            return MoonshotClient(config)
-        elif config.llm_provider == "dashscope":
-            return DashScopeClient(config)
-        elif config.llm_provider == "deepseek":
-            return DeepSeekClient(config)
-        else:
+        client_cls = LLMClientFactory.PROVIDERS.get(config.llm_provider)
+        if client_cls is None:
             raise ValueError(f"Unknown provider: {config.llm_provider}")
-
-
-if __name__ == "__main__":
-    print("LLM Client Test")
-    print("=" * 50)
-    print("Supported LLM providers:")
-    print("  - moonshot (Kimi, recommended)")
-    print("  - openai (GPT-4)")
-    print("  - dashscope (Tongyi Qianwen)")
-    print("  - deepseek (DeepSeek)")
-    print("=" * 50)
+        return client_cls(config)

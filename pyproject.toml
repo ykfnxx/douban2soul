@@ -43,7 +43,7 @@ dev = [
 ]
 
 [project.scripts]
-douban2soul = "main:main"
+douban2soul = "douban2soul.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/ykfnxx/douban2soul"
@@ -51,8 +51,7 @@ Repository = "https://github.com/ykfnxx/douban2soul"
 Issues = "https://github.com/ykfnxx/douban2soul/issues"
 
 [tool.hatch.build.targets.wheel]
-packages = ["scripts", "."]
-only-include = ["main.py", "scripts"]
+packages = ["src/douban2soul"]
 
 [tool.uv.pip]
 index-url = "https://pypi.org/simple"

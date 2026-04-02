@@ -40,12 +40,12 @@ export DASHSCOPE_API_KEY="sk-xxx"
 ### 3. Run Analysis
 
 ```bash
-uv run python main.py
+uv run douban2soul --data your-data.json
 ```
 
 Or use a different LLM provider:
 ```bash
-uv run python main.py --provider openai
+uv run douban2soul --provider openai --data your-data.json
 ```
 
 ## Output Reports
@@ -63,15 +63,20 @@ After analysis completes, reports are generated in the `output/` directory:
 
 ```
 Douban2Soul/
-├── main.py                  # Entry point
-├── scripts/
-│   ├── llm_client.py        # Unified LLM interface
-│   ├── analysis_engine.py   # Analysis engine
-│   └── metadata_fetcher.py  # Metadata fetcher
-├── docs/
-│   └── PRD.md               # Product requirements
-├── output/                  # Report output
-└── cache/                   # Metadata cache
+├── src/douban2soul/
+│   ├── cli.py               # CLI entry point
+│   ├── scraping/             # Content scraping
+│   │   ├── records.py        # Viewing records loader
+│   │   └── metadata.py       # Movie metadata fetcher
+│   ├── statistics/           # Data statistics (no LLM)
+│   │   └── engine.py         # Base stats & dimensional analysis
+│   └── analysis/             # LLM-powered analysis
+│       ├── llm_client.py     # Unified LLM interface
+│       └── profiler.py       # Personality profile analysis
+├── tests/                    # Test suite
+├── docs/                     # Project documentation
+├── output/                   # Report output (git-ignored)
+└── cache/                    # Metadata cache (git-ignored)
 ```
 
 ## Tech Stack

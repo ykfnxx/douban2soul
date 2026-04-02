@@ -27,7 +27,7 @@ class MetadataFetcher:
             try:
                 with open(self.cache_file, 'r', encoding='utf-8') as f:
                     return json.load(f)
-            except:
+            except Exception:
                 return {}
         return {}
 
@@ -57,7 +57,7 @@ class MetadataFetcher:
             resp = self.session.get(url, timeout=15)
 
             if resp.status_code == 429:
-                print(f"  Rate limited, pausing for 60s...")
+                print("  Rate limited, pausing for 60s...")
                 time.sleep(60)
                 return self.fetch_wmdb(douban_id)
 
@@ -71,7 +71,7 @@ class MetadataFetcher:
                         'year': movie.get('year'),
                         'genre': [g.strip() for g in movie.get('genre', '').split('/') if g.strip()],
                         'director': movie.get('director', []),
-                        'actor': movie.get('actor', [])[:10],  # top 10 actors
+                        'actor': movie.get('actor', [])[:10],
                         'country': movie.get('country', ''),
                         'douban_rating': movie.get('doubanScore'),
                         'duration': movie.get('duration'),
@@ -91,14 +91,11 @@ class MetadataFetcher:
         2. Try wmdb.tv
         3. Return empty structure on failure
         """
-        # Check cache
         if douban_id in self.cache and self._is_valid(self.cache[douban_id]):
             return self.cache[douban_id]
 
-        # Try wmdb
         data = self.fetch_wmdb(douban_id)
 
-        # Save result (cache failures too to avoid repeated requests)
         self.cache[douban_id] = data or {"_failed": True}
         self._save_cache()
 
@@ -128,48 +125,3 @@ class MetadataFetcher:
 
         print(f"Done: successfully fetched {len(results)} movies")
         return results
-
-
-def main():
-    """Test run"""
-    print("=" * 60)
-    print("Metadata Fetcher Test")
-    print("=" * 60)
-
-    # Load movie records
-    data_file = Path(__file__).parent.parent / "solid-yang.json"
-    if not data_file.exists():
-        print(f"Data file not found: {data_file}")
-        return
-
-    with open(data_file, 'r', encoding='utf-8') as f:
-        data = json.load(f)
-
-    movie_ids = list(dict.fromkeys([d["movieId"] for d in data if d.get("movieId")]))
-    print(f"Total movies: {len(movie_ids)}")
-
-    # Create fetcher
-    fetcher = MetadataFetcher()
-
-    # Batch fetch (test first 5)
-    test_ids = movie_ids[:5]
-    print(f"\nTest fetching first {len(test_ids)} movies...")
-
-    for mid in test_ids:
-        result = fetcher.fetch(mid)
-        if result and not result.get("_failed"):
-            print(f"OK {mid}: {result.get('title')} ({result.get('year')})")
-            print(f"    Genre: {', '.join(result.get('genre', []))}")
-            print(f"    Director: {', '.join(result.get('director', [])[:3])}")
-        else:
-            print(f"FAIL {mid}: fetch failed")
-
-    print("\n" + "=" * 60)
-    print("To fetch all metadata, run:")
-    print('  python -c "from scripts.metadata_fetcher import MetadataFetcher; \\')
-    print('    f = MetadataFetcher(); f.batch_fetch(movie_ids)"')
-    print("=" * 60)
-
-
-if __name__ == "__main__":
-    main()

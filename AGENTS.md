@@ -16,18 +16,36 @@ This document defines the development conventions and constraints for all contri
 
 ```
 Douban2Soul/
-├── main.py                  # CLI entry point
-├── scripts/
-│   ├── llm_client.py        # Unified LLM client interface
-│   ├── analysis_engine.py   # Layered analysis engine (L1-L4)
-│   └── metadata_fetcher.py  # Movie metadata fetcher
-├── docs/                    # Project documentation
-├── output/                  # Generated reports (git-ignored)
-├── cache/                   # Metadata cache (git-ignored)
-├── AGENTS.md                # This file
-├── README.md                # English README
-└── README_ZH.md             # Chinese README
+├── src/douban2soul/            # Main package (src layout)
+│   ├── __init__.py
+│   ├── cli.py                  # CLI entry point
+│   ├── scraping/               # 1. Content scraping
+│   │   ├── __init__.py
+│   │   ├── records.py          # Viewing records loader
+│   │   └── metadata.py         # Movie metadata fetcher (wmdb.tv etc.)
+│   ├── statistics/             # 2. Data statistics (no LLM)
+│   │   ├── __init__.py
+│   │   └── engine.py           # Base stats, dimensional analysis
+│   └── analysis/               # 3. LLM-powered analysis
+│       ├── __init__.py
+│       ├── llm_client.py       # Unified LLM client interface
+│       └── profiler.py         # Personality profile analysis
+├── tests/                      # Test suite
+├── docs/                       # Project documentation
+├── output/                     # Generated reports (git-ignored)
+├── cache/                      # Metadata cache (git-ignored)
+├── AGENTS.md                   # This file
+├── README.md                   # English README
+└── README_ZH.md                # Chinese README
 ```
+
+### Module Responsibilities
+
+| Module | Purpose | Uses LLM |
+|--------|---------|----------|
+| `scraping` | Fetch viewing records and movie metadata | No |
+| `statistics` | Compute stats, distributions, rankings from raw data | No |
+| `analysis` | LLM-powered comment analysis and personality profiling | Yes |
 
 ## Tech Stack
 
