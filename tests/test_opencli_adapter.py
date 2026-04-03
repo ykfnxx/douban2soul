@@ -16,17 +16,19 @@ from douban2soul.scraping.adapters.fallback import FallbackAdapter
 
 OPENCLI_OUTPUT = json.dumps([
     {
-        "casts": "蒂姆·罗宾斯,摩根·弗里曼,鲍勃·冈顿",
+        "casts": ["蒂姆·罗宾斯", "摩根·弗里曼", "鲍勃·冈顿"],
+        "country": ["美国"],
         "directors": "弗兰克·德拉邦特",
+        "duration": 142,
         "genres": "剧情,犯罪",
         "id": "1292052",
-        "originalTitle": "",
+        "originalTitle": "The Shawshank Redemption",
         "rating": 9.7,
-        "ratingCount": 3273945,
+        "ratingCount": 3273957,
         "summary": "一场谋杀案...",
-        "title": "肖申克的救赎 The Shawshank Redemption",
+        "title": "肖申克的救赎",
         "url": "https://movie.douban.com/subject/1292052",
-        "year": "(1994)",
+        "year": "1994",
     }
 ])
 
@@ -59,15 +61,16 @@ class TestOpenCLIAdapter:
         result = adapter.fetch("1292052")
 
         assert result is not None
-        assert result["title"] == "肖申克的救赎 The Shawshank Redemption"
+        assert result["title"] == "肖申克的救赎"
+        assert result["original_title"] == "The Shawshank Redemption"
         assert result["year"] == "1994"
         assert result["genre"] == ["剧情", "犯罪"]
         assert result["director"] == ["弗兰克·德拉邦特"]
         assert result["cast"] == ["蒂姆·罗宾斯", "摩根·弗里曼", "鲍勃·冈顿"]
         assert result["douban_rating"] == 9.7
-        assert result["rating_count"] == 3273945
-        assert result["country"] is None
-        assert result["duration"] is None
+        assert result["rating_count"] == 3273957
+        assert result["country"] == "美国"
+        assert result["duration"] == 142
 
     @patch("douban2soul.scraping.adapters.opencli.subprocess.run")
     def test_opencli_not_found(self, mock_run):
@@ -111,7 +114,7 @@ class TestOpenCLIAdapter:
         for year_input, expected in [("(1994)", "1994"), ("1994", "1994"), ("", None), (None, None)]:
             output = json.dumps([{
                 "title": "Test", "year": year_input, "genres": "", "directors": "",
-                "casts": "", "rating": None, "ratingCount": None,
+                "casts": [], "rating": None, "ratingCount": None,
                 "originalTitle": "",
             }])
             mock_run.return_value = subprocess.CompletedProcess(
@@ -120,6 +123,51 @@ class TestOpenCLIAdapter:
             result = OpenCLIAdapter().fetch("123")
             assert result is not None
             assert result["year"] == expected, f"Input {year_input!r} → expected {expected!r}"
+
+    @patch("douban2soul.scraping.adapters.opencli.subprocess.run")
+    def test_casts_as_comma_string(self, mock_run):
+        """Backward compat: casts can still be a comma-separated string."""
+        output = json.dumps([{
+            "title": "Test", "year": "2020", "genres": "剧情",
+            "directors": "导演A", "casts": "演员A,演员B",
+            "rating": 8.0, "ratingCount": 100, "originalTitle": "",
+        }])
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout=output, stderr="",
+        )
+        result = OpenCLIAdapter().fetch("123")
+        assert result["cast"] == ["演员A", "演员B"]
+
+    @patch("douban2soul.scraping.adapters.opencli.subprocess.run")
+    def test_country_array_joined(self, mock_run):
+        """Country array is joined with '/'."""
+        output = json.dumps([{
+            "title": "Test", "year": "2020", "genres": "剧情",
+            "directors": "D", "casts": [], "country": ["中国大陆", "美国"],
+            "duration": 120, "rating": 7.0, "ratingCount": 50,
+            "originalTitle": "",
+        }])
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout=output, stderr="",
+        )
+        result = OpenCLIAdapter().fetch("123")
+        assert result["country"] == "中国大陆/美国"
+        assert result["duration"] == 120
+
+    @patch("douban2soul.scraping.adapters.opencli.subprocess.run")
+    def test_missing_country_duration(self, mock_run):
+        """When country/duration fields are absent, returns None."""
+        output = json.dumps([{
+            "title": "Test", "year": "2020", "genres": "剧情",
+            "directors": "D", "casts": [],
+            "rating": 7.0, "ratingCount": 50, "originalTitle": "",
+        }])
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout=output, stderr="",
+        )
+        result = OpenCLIAdapter().fetch("123")
+        assert result["country"] is None
+        assert result["duration"] is None
 
 
 # ------------------------------------------------------------------
