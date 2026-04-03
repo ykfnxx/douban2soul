@@ -266,6 +266,21 @@ class TestDirectorStats:
         # Director X appears twice
         assert result["distinct_count"] == 3
         assert result["repeat_director_ratio"] > 0
+        # Ratio must be <= 1.0 (counts films, not director appearances)
+        assert result["repeat_director_ratio"] <= 1.0
+
+    def test_repeat_ratio_counts_films(self) -> None:
+        """repeat_director_ratio counts unique films, not director occurrences."""
+        records = [
+            {"director": ["A"], "my_rating": 8},
+            {"director": ["A"], "my_rating": 6},
+            {"director": ["A"], "my_rating": 10},
+            {"director": ["B"], "my_rating": 4},
+        ]
+        result = compute_director_stats(records)
+        # A appears 3 times -> 3 films with repeat director, B once -> 0
+        # Ratio = 3/4 = 0.75
+        assert result["repeat_director_ratio"] == 0.75
 
     def test_top_directors_threshold(self, merged: list[dict]) -> None:
         result = compute_director_stats(merged)
@@ -409,6 +424,15 @@ class TestStatsEngine:
         engine = StatsEngine(records=SAMPLE_RECORDS, metadata=None)
         report = engine.generate_l1_report()
         assert "Metadata Coverage**: 0 (0.0%)" in report
+
+    def test_metadata_coverage_partial(self) -> None:
+        """Metadata coverage counts records with any metadata field, not just genre."""
+        records = [{"movieId": "1", "title": "A"}, {"movieId": "2", "title": "B"}]
+        # Movie 1 has only duration (no genre), movie 2 has nothing
+        metadata = {"1": {"duration": 120}}
+        engine = StatsEngine(records=records, metadata=metadata)
+        ctx = engine.generate_llm_context()
+        assert ctx["overview"]["metadata_coverage"] == 0.5
 
     def test_stats_cached(self) -> None:
         engine = StatsEngine(records=SAMPLE_RECORDS, metadata=SAMPLE_METADATA)

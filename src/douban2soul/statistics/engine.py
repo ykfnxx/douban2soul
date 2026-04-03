@@ -99,7 +99,9 @@ class StatsEngine:
         total = r["total_count"]
         rated = r["rated_count"]
         metadata_count = sum(
-            1 for rec in self.merged if rec.get("genre") is not None
+            1 for rec in self.merged
+            if any(rec.get(f) is not None
+                   for f in ("genre", "director", "country", "duration", "douban_rating"))
         )
 
         report = f"""# L1: Base Statistics Report
@@ -129,9 +131,9 @@ class StatsEngine:
             bar = "\u2588" * int(pct / 2)
             report += f"| {score} | {count} | {pct:.1f}% | {bar} |\n"
 
-        # Year distribution (top 10)
+        # Viewing year distribution (top 10)
         report += """
-## Year Distribution (Top 10)
+## Viewing Year Distribution (Top 10)
 | Year | Count |
 |------|-------|
 """
@@ -309,7 +311,9 @@ class StatsEngine:
         """Structured data dict for LLM L2/L4 analysis."""
         s = self.stats
         metadata_count = sum(
-            1 for rec in self.merged if rec.get("genre") is not None
+            1 for rec in self.merged
+            if any(rec.get(f) is not None
+                   for f in ("genre", "director", "country", "duration", "douban_rating"))
         )
         total = s["rating"]["total_count"]
 

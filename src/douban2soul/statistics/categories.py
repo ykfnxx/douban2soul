@@ -217,8 +217,13 @@ def compute_director_stats(records: list[dict]) -> dict:
         avg = round(sum(ratings) / len(ratings), 1) if ratings else 0
         top_directors.append((name, count, avg))
 
-    # Repeat director ratio
-    repeat_films = sum(c for c in director_counts.values() if c >= 2)
+    # Repeat director ratio: fraction of films whose director appears 2+ times
+    repeat_directors = {d for d, c in director_counts.items() if c >= 2}
+    repeat_films = sum(
+        1 for r in records
+        if r.get("director")
+        and any(d in repeat_directors for d in r["director"])
+    )
     repeat_ratio = repeat_films / total_with_director if total_with_director else 0
 
     # Director average ratings (for directors with 2+ movies)
