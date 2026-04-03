@@ -1,165 +1,368 @@
-#!/usr/bin/env python3
 """
-Statistics Engine - Pure data statistics, no LLM involved
-Generates L1 base stats and L3 dimensional analysis reports
+Statistics Engine — orchestrates all statistical computations and report generation.
+
+Produces three output targets from one data pass:
+  1. L1 Report (markdown) — base statistics overview
+  2. L3 Report (markdown) — dimensional deep analysis
+  3. LLM Context (dict)  — structured data for L2/L4 personality profiling
 """
 
-from collections import Counter
-from typing import List, Dict
+from douban2soul.statistics.categories import (
+    compute_comment_stats,
+    compute_crowd_comparison,
+    compute_director_stats,
+    compute_genre_stats,
+    compute_geography_stats,
+    compute_habit_stats,
+    compute_rating_stats,
+    compute_temporal_stats,
+)
+from douban2soul.statistics.merge import merge_records_with_metadata
 
 
 class StatsEngine:
-    """Data statistics engine for movie viewing records"""
+    """
+    Orchestrate statistical computations over viewing records + metadata.
 
-    def generate_base_stats(self, data: List[Dict]) -> str:
-        """
-        L1: Base statistics report (no LLM required)
-        """
-        total = len(data)
-        rated = [d for d in data if d.get("myRating")]
-        comments = [d for d in data if d.get("myComment")]
+    Parameters
+    ----------
+    records:
+        Raw viewing records (list of dicts from the JSON export).
+    metadata:
+        Scraped metadata keyed by movieId.  Pass None or {} for
+        record-only analysis (backward compatible).
+    """
 
-        # Rating statistics
-        ratings = [d["myRating"] for d in rated]
-        avg_rating = sum(ratings) / len(ratings) if ratings else 0
-        rating_dist: Dict[int, int] = {}
-        for r in ratings:
-            rating_dist[r] = rating_dist.get(r, 0) + 1
+    def __init__(
+        self,
+        records: list[dict] | None = None,
+        metadata: dict[str, dict] | None = None,
+    ) -> None:
+        self._records = records or []
+        self._metadata = metadata
+        self._merged: list[dict] | None = None
+        self._stats: dict[str, dict] | None = None
 
-        # Year distribution
-        years: Dict[str, int] = {}
-        for d in data:
-            y = d.get("year")
-            if y:
-                years[y] = years.get(y, 0) + 1
+    @property
+    def merged(self) -> list[dict]:
+        if self._merged is None:
+            self._merged = merge_records_with_metadata(self._records, self._metadata)
+        return self._merged
+
+    @property
+    def stats(self) -> dict[str, dict]:
+        if self._stats is None:
+            m = self.merged
+            self._stats = {
+                "rating": compute_rating_stats(m),
+                "temporal": compute_temporal_stats(m),
+                "genre": compute_genre_stats(m),
+                "director": compute_director_stats(m),
+                "geography": compute_geography_stats(m),
+                "comments": compute_comment_stats(m),
+                "crowd": compute_crowd_comparison(m),
+                "habits": compute_habit_stats(m),
+            }
+        return self._stats
+
+    # ------------------------------------------------------------------
+    # Legacy API (backward compatible with old cli.py calls)
+    # ------------------------------------------------------------------
+
+    def generate_base_stats(self, data: list[dict] | None = None) -> str:
+        """L1: Base statistics overview (markdown)."""
+        if data is not None:
+            self._records = data
+            self._merged = None
+            self._stats = None
+        return self.generate_l1_report()
+
+    def generate_dimension_analysis(self, data: list[dict] | None = None) -> str:
+        """L3: Dimensional deep analysis (markdown)."""
+        if data is not None:
+            self._records = data
+            self._merged = None
+            self._stats = None
+        return self.generate_l3_report()
+
+    # ------------------------------------------------------------------
+    # L1 Report
+    # ------------------------------------------------------------------
+
+    def generate_l1_report(self) -> str:
+        """L1: Base statistics overview (Categories A, B summary, F)."""
+        s = self.stats
+        r = s["rating"]
+        t = s["temporal"]
+        c = s["comments"]
+
+        total = r["total_count"]
+        rated = r["rated_count"]
+        metadata_count = sum(
+            1 for rec in self.merged if rec.get("genre") is not None
+        )
 
         report = f"""# L1: Base Statistics Report
 
 ## Data Overview
 - **Total Movies**: {total}
-- **Rated**: {len(rated)} ({len(rated)/total*100:.1f}%)
-- **With Comments**: {len(comments)} ({len(comments)/total*100:.1f}%)
+- **Rated**: {rated} ({rated / total * 100:.1f}%)
+- **With Comments**: {c['comment_count']} ({c['comment_rate'] * 100:.1f}%)
+- **Metadata Coverage**: {metadata_count} ({metadata_count / total * 100:.1f}%)
+"""
+        if t["date_range"]:
+            report += f"- **Date Range**: {t['date_range'][0]} to {t['date_range'][1]}\n"
 
+        report += f"""
 ## Rating Statistics
-- **Average Rating**: {avg_rating:.2f} / 10
-- **Median Rating**: {sorted(ratings)[len(ratings)//2] if ratings else 'N/A'}
+- **Average Rating**: {r['mean']:.2f} / 10
+- **Median Rating**: {r['median']}
+- **Standard Deviation**: {r['stddev']:.2f}
 
 ### Rating Distribution
 | Rating | Count | Percentage | Visual |
 |--------|-------|------------|--------|
 """
         for score in [10, 8, 6, 4, 2]:
-            count = rating_dist.get(score, 0)
-            pct = count / len(rated) * 100 if rated else 0
+            count = r["distribution"].get(score, 0)
+            pct = count / rated * 100 if rated else 0
             bar = "\u2588" * int(pct / 2)
             report += f"| {score} | {count} | {pct:.1f}% | {bar} |\n"
 
+        # Year distribution (top 10)
         report += """
 ## Year Distribution (Top 10)
 | Year | Count |
 |------|-------|
 """
-        for year, count in sorted(years.items(), key=lambda x: -x[1])[:10]:
+        year_dist = t["viewing_year_distribution"]
+        for year, count in sorted(year_dist.items(), key=lambda x: -x[1])[:10]:
             report += f"| {year} | {count} |\n"
 
+        # Comment overview
+        report += f"""
+## Comment Overview
+- **Comment Rate**: {c['comment_rate'] * 100:.1f}%
+- **Average Length**: {c['avg_length']:.0f} characters
+"""
         return report
 
-    def generate_dimension_analysis(self, data: List[Dict]) -> str:
-        """
-        L3: Dimensional deep analysis (basic version, can be enhanced later)
+    # ------------------------------------------------------------------
+    # L3 Report
+    # ------------------------------------------------------------------
 
-        Dimensions:
-        - Era preferences
-        - Top-rated / low-rated movies
-        - Genre/director/regional analysis (after metadata enrichment)
-        """
-        # Decade analysis
-        years = Counter()
-        for d in data:
-            y = d.get('year')
-            if y and str(y).isdigit():
-                decade = f"{str(y)[:3]}0s"
-                years[decade] += 1
-
-        # Rating by year
-        year_ratings: Dict[str, List] = {}
-        for d in data:
-            y = d.get('year')
-            r = d.get('myRating')
-            if y and r:
-                if y not in year_ratings:
-                    year_ratings[y] = []
-                year_ratings[y].append(r)
-
-        # Average rating per decade
-        decade_avg: Dict[str, List] = {}
-        for y, ratings in year_ratings.items():
-            decade = f"{str(y)[:3]}0s"
-            if decade not in decade_avg:
-                decade_avg[decade] = []
-            decade_avg[decade].extend(ratings)
+    def generate_l3_report(self) -> str:
+        """L3: Dimensional deep analysis (Categories B-H)."""
+        s = self.stats
+        t = s["temporal"]
+        g = s["genre"]
+        d = s["director"]
+        geo = s["geography"]
+        crowd = s["crowd"]
+        h = s["habits"]
 
         report = """# L3: Dimensional Deep Analysis
 
-## 3.1 Era Preference Analysis
+"""
+        # B. Era Preference
+        report += """## Era Preference Analysis
 
 ### Movies by Decade
-| Decade | Count | Percentage |
+| Decade | Count | Avg Rating |
 |--------|-------|------------|
 """
-        total = len(data)
-        for decade, count in sorted(years.items()):
-            pct = count / total * 100
-            report += f"| {decade} | {count} | {pct:.1f}% |\n"
+        for decade, count in sorted(t["decade_distribution"].items()):
+            avg = t["decade_avg_rating"].get(decade, "—")
+            report += f"| {decade} | {count} | {avg} |\n"
 
-        report += """
-### Average Rating by Decade
-| Decade | Avg Rating | Sample Size |
-|--------|------------|-------------|
-"""
-        for decade, ratings in sorted(decade_avg.items()):
-            if len(ratings) >= 3:
-                avg = sum(ratings) / len(ratings)
-                report += f"| {decade} | {avg:.1f} | {len(ratings)} |\n"
-
-        report += """
-## 3.2 Top-Rated Movies (Rating = 10)
+        report += f"""
+### Temporal Orientation
+- **Recency ratio (post-2020)**: {t['recency_ratio'] * 100:.1f}%
+- **Classic count (pre-2000)**: {t['pre_2000_count']}
+- **Peak viewing years**: {', '.join(str(y) for y in t['peak_years'])}
 
 """
-        high_rated = [d for d in data if d.get('myRating') == 10]
-        report += f"Total: {len(high_rated)} perfect-score movies\n\n"
+        # C. Genre Profile
+        if g["records_with_genre"] > 0:
+            report += """## Genre Profile
 
-        high_by_decade: Dict[str, List[str]] = {}
-        for d in high_rated:
-            y = d.get('year', 'Unknown')
-            decade = f"{str(y)[:3]}0s" if str(y).isdigit() else 'Unknown'
-            if decade not in high_by_decade:
-                high_by_decade[decade] = []
-            high_by_decade[decade].append(d['title'])
+### Genre Distribution (Top 15)
+| Genre | Count | % of Library | Avg Rating |
+|-------|-------|-------------|------------|
+"""
+            total_genres = sum(c for _, c in g["top_genres"])
+            for genre, count in g["top_genres"][:15]:
+                pct = count / total_genres * 100
+                avg = g["genre_avg_rating"].get(genre, "—")
+                report += f"| {genre} | {count} | {pct:.1f}% | {avg} |\n"
 
-        for decade, titles in sorted(high_by_decade.items()):
-            report += f"**{decade}**: {', '.join(titles[:5])}"
-            if len(titles) > 5:
-                report += f" and {len(titles) - 5} more"
-            report += "\n\n"
+            report += """
+### Genre Cluster Scores
+| Cluster | Score | Personality Signal |
+|---------|-------|-------------------|
+"""
+            cluster_signals = {
+                "Intellectual": "High Openness",
+                "Mainstream Action": "Sensation Seeking",
+                "Emotional Drama": "High Agreeableness / Empathy",
+                "Thrill-seeking": "Low Neuroticism / Sensation Seeking",
+                "Light Entertainment": "High Extraversion",
+                "Artistic": "High Openness / Aesthetic Sensitivity",
+            }
+            for cluster, score in sorted(
+                g["cluster_scores"].items(), key=lambda x: -x[1]
+            ):
+                signal = cluster_signals.get(cluster, "")
+                report += f"| {cluster} | {score * 100:.1f}% | {signal} |\n"
 
-        report += """
-## 3.3 Low-Rated Movies (Rating <= 4)
+            report += f"""
+### Genre Diversity
+- **Distinct genres**: {g['genre_diversity']}
 
 """
-        low_rated = [d for d in data if d.get('myRating') and d['myRating'] <= 4]
-        report += f"Total: {len(low_rated)} low-rated movies\n\n"
+        # D. Director Profile
+        if d["total_with_director"] > 0:
+            report += f"""## Director Profile
 
-        for d in low_rated[:10]:
-            report += f"- \u300a{d['title']}\u300b({d.get('year', 'N/A')}): {d.get('myRating')} pts"
-            if d.get('myComment'):
-                comment = d['myComment'][:50] + "..." if len(d['myComment']) > 50 else d['myComment']
-                report += f" - {comment}"
+### Top Directors (\u22653 films)
+| Director | Count | Avg Rating |
+|----------|-------|------------|
+"""
+            for name, count, avg in d["top_directors"][:15]:
+                report += f"| {name} | {count} | {avg} |\n"
+
+            report += f"""
+### Director Loyalty
+- **Repeat director ratio**: {d['repeat_director_ratio'] * 100:.1f}%
+- **Distinct directors**: {d['distinct_count']}
+
+"""
+        # E. Cultural Profile
+        if geo["total_with_country"] > 0:
+            report += """## Cultural Profile
+
+### Country Distribution (Top 10)
+| Country | Count | Avg Rating |
+|---------|-------|------------|
+"""
+            for country, count in geo["top_countries"]:
+                avg = geo["country_avg_rating"].get(country, "—")
+                report += f"| {country} | {count} | {avg} |\n"
+
+            report += f"""
+### Cultural Orientation
+- **Domestic ratio (China)**: {geo['domestic_ratio'] * 100:.1f}%
+- **Country diversity**: {geo['country_diversity']} countries
+
+### Region Distribution
+| Region | Share |
+|--------|-------|
+"""
+            for region, score in geo["region_scores"].items():
+                report += f"| {region} | {score * 100:.1f}% |\n"
             report += "\n"
 
-        report += """
----
+        # G. User vs. Crowd
+        if crowd["pair_count"] > 0:
+            report += f"""## User vs. Crowd
 
-*Note: Full genre/director/regional analysis requires metadata fetching to be completed.*
+- **Average rating gap**: {crowd['rating_gap_mean']:+.2f} ({"rates higher" if crowd['rating_gap_mean'] > 0 else "rates lower"} than Douban crowd)
+- **Gap std. deviation**: {crowd['rating_gap_stddev']:.2f}
+- **Crowd alignment (Pearson r)**: {crowd['crowd_alignment_score']:.3f}
+- **Comparison pairs**: {crowd['pair_count']}
 """
+            if crowd["overrated_movies"]:
+                report += "\n### Personal Favorites (rated much higher than crowd)\n"
+                for title, my, db, gap in crowd["overrated_movies"][:5]:
+                    report += f"- \u300a{title}\u300b: {my} vs {db} (gap {gap:+.1f})\n"
+
+            if crowd["underrated_movies"]:
+                report += "\n### Against the Grain (rated much lower than crowd)\n"
+                for title, my, db, gap in crowd["underrated_movies"][:5]:
+                    report += f"- \u300a{title}\u300b: {my} vs {db} (gap {gap:+.1f})\n"
+            report += "\n"
+
+        # H. Viewing Habits
+        if h["total_with_duration"] > 0:
+            report += f"""## Viewing Habits
+
+- **Average film duration**: {h['avg_duration']:.0f} min
+- **Long films (\u2265150 min)**: {h['long_film_ratio'] * 100:.1f}%
+- **Binge days (\u22653 films/day)**: {h['binge_days']}
+
+### Duration Distribution
+| Category | Count |
+|----------|-------|
+| < 90 min | {h['duration_distribution']['short_lt90']} |
+| 90-120 min | {h['duration_distribution']['standard_90_120']} |
+| 120-150 min | {h['duration_distribution']['long_120_150']} |
+| 150+ min | {h['duration_distribution']['very_long_150plus']} |
+"""
+
         return report
+
+    # ------------------------------------------------------------------
+    # LLM Context
+    # ------------------------------------------------------------------
+
+    def generate_llm_context(self) -> dict:
+        """Structured data dict for LLM L2/L4 analysis."""
+        s = self.stats
+        metadata_count = sum(
+            1 for rec in self.merged if rec.get("genre") is not None
+        )
+        total = s["rating"]["total_count"]
+
+        return {
+            "overview": {
+                "total_movies": total,
+                "rated_count": s["rating"]["rated_count"],
+                "comment_count": s["comments"]["comment_count"],
+                "metadata_coverage": round(metadata_count / total, 3) if total else 0,
+                "date_range": s["temporal"]["date_range"],
+            },
+            "rating": {
+                "mean": s["rating"]["mean"],
+                "median": s["rating"]["median"],
+                "stddev": s["rating"]["stddev"],
+                "distribution": s["rating"]["distribution"],
+            },
+            "genre": {
+                "top_genres": s["genre"]["top_genres"][:10],
+                "cluster_scores": s["genre"]["cluster_scores"],
+                "diversity_index": s["genre"]["genre_diversity"],
+            },
+            "director": {
+                "top_directors": [
+                    (name, count, avg)
+                    for name, count, avg in s["director"]["top_directors"][:10]
+                ],
+                "repeat_ratio": s["director"]["repeat_director_ratio"],
+                "distinct_count": s["director"]["distinct_count"],
+            },
+            "geography": {
+                "top_countries": s["geography"]["top_countries"],
+                "domestic_ratio": s["geography"]["domestic_ratio"],
+                "diversity_index": s["geography"]["country_diversity"],
+                "region_scores": s["geography"]["region_scores"],
+            },
+            "crowd_comparison": {
+                "mean_gap": s["crowd"]["rating_gap_mean"],
+                "correlation": s["crowd"]["crowd_alignment_score"],
+            },
+            "temporal": {
+                "decade_distribution": s["temporal"]["decade_distribution"],
+                "recency_ratio": s["temporal"]["recency_ratio"],
+                "peak_years": s["temporal"]["peak_years"],
+            },
+            "comments": {
+                "rate": s["comments"]["comment_rate"],
+                "avg_length": s["comments"]["avg_length"],
+                "length_distribution": s["comments"]["length_distribution"],
+            },
+            "habits": {
+                "avg_duration": s["habits"]["avg_duration"],
+                "long_film_ratio": s["habits"]["long_film_ratio"],
+                "binge_days": s["habits"]["binge_days"],
+            },
+        }

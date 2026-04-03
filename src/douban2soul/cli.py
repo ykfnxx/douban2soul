@@ -17,9 +17,21 @@ from douban2soul.analysis.profiler import ProfileAnalyzer
 from douban2soul.statistics.engine import StatsEngine
 
 
+_DEFAULT_METADATA_PATH = "cache/metadata.json"
+
+
 def load_data(data_file: str) -> list:
     """Load movie viewing records from JSON file"""
     with open(data_file, 'r', encoding='utf-8') as f:
+        return json.load(f)
+
+
+def load_metadata(path: str = _DEFAULT_METADATA_PATH) -> dict[str, dict]:
+    """Load scraped metadata JSON. Returns empty dict if file is missing."""
+    p = Path(path)
+    if not p.exists():
+        return {}
+    with open(p, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -68,12 +80,14 @@ def cmd_analyze(args: argparse.Namespace) -> int:
 
     print("\n[1/5] Loading data...")
     data = load_data(str(data_path))
+    metadata = load_metadata(args.metadata)
     print(f"  Total movies: {len(data)}")
     print(f"  With comments: {len([d for d in data if d.get('myComment')])}")
+    print(f"  Metadata entries: {len(metadata)}")
 
     print("\n[2/5] Generating L1 base statistics...")
-    stats = StatsEngine()
-    l1_report = stats.generate_base_stats(data)
+    stats = StatsEngine(records=data, metadata=metadata)
+    l1_report = stats.generate_l1_report()
     save_report(output_dir, "01_base_stats.md", l1_report)
 
     print("\n[3/5] Generating L2 comment analysis (using LLM)...")
@@ -82,7 +96,7 @@ def cmd_analyze(args: argparse.Namespace) -> int:
     save_report(output_dir, "02_comment_insights.md", l2_report)
 
     print("\n[4/5] Generating L3 dimensional analysis...")
-    l3_report = stats.generate_dimension_analysis(data)
+    l3_report = stats.generate_l3_report()
     save_report(output_dir, "03_dimension_analysis.md", l3_report)
 
     print("\n[5/5] Generating L4 comprehensive profile (using LLM)...")
@@ -183,6 +197,8 @@ def main():
                            help="LLM provider")
     p_analyze.add_argument("--model", "-m", default=None,
                            help="Model name")
+    p_analyze.add_argument("--metadata", default=_DEFAULT_METADATA_PATH,
+                           help="Path to scraped metadata JSON")
 
     # --- scrape ---
     p_scrape = subparsers.add_parser(
