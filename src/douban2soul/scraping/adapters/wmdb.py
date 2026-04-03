@@ -13,9 +13,10 @@ from douban2soul.scraping.adapters.base import BaseMetadataAdapter
 logger = logging.getLogger(__name__)
 
 _API_URL = "https://api.wmdb.tv/movie/api"
-_TIMEOUT = 10
+_TIMEOUT = 15
 _MIN_INTERVAL = 1.0  # seconds between requests
-_RETRY_WAIT = 5  # seconds to wait after a 429
+_MAX_RETRIES = 3
+_RETRY_BACKOFF = [2, 5, 10]  # seconds to wait before each retry
 
 
 @register
@@ -23,8 +24,8 @@ class WMDBAdapter(BaseMetadataAdapter):
     """
     Fetch movie metadata from wmdb.tv using the Douban movie ID.
 
-    Rate-limited to one request per second.  On HTTP 429 the adapter
-    pauses briefly and returns None (the caller can retry later).
+    Rate-limited to one request per second.  Transient errors (timeouts,
+    connection errors, HTTP 429/5xx) are retried with exponential backoff.
     """
 
     name = "wmdb"
@@ -33,31 +34,53 @@ class WMDBAdapter(BaseMetadataAdapter):
         self._last_request_time: float = 0
 
     def fetch(self, movie_id: str) -> Optional[dict]:
-        self._wait()
+        for attempt in range(_MAX_RETRIES):
+            self._wait()
 
-        try:
-            resp = requests.get(
-                _API_URL,
-                params={"id": movie_id},
-                timeout=_TIMEOUT,
-            )
-        except requests.Timeout:
-            logger.warning("Timeout fetching %s from wmdb", movie_id)
-            return None
-        except requests.RequestException as exc:
-            logger.warning("Request error for %s: %s", movie_id, exc)
-            return None
+            try:
+                resp = requests.get(
+                    _API_URL,
+                    params={"id": movie_id},
+                    timeout=_TIMEOUT,
+                )
+            except (requests.Timeout, requests.ConnectionError) as exc:
+                wait = _RETRY_BACKOFF[min(attempt, len(_RETRY_BACKOFF) - 1)]
+                logger.warning(
+                    "Transient error fetching %s (attempt %d/%d): %s — retrying in %ds",
+                    movie_id, attempt + 1, _MAX_RETRIES, exc, wait,
+                )
+                time.sleep(wait)
+                continue
+            except requests.RequestException as exc:
+                logger.warning("Request error for %s: %s", movie_id, exc)
+                return None
 
-        if resp.status_code == 429:
-            logger.warning("Rate-limited by wmdb for %s, backing off", movie_id)
-            time.sleep(_RETRY_WAIT)
-            return None
+            if resp.status_code == 429:
+                wait = _RETRY_BACKOFF[min(attempt, len(_RETRY_BACKOFF) - 1)]
+                logger.warning(
+                    "Rate-limited by wmdb for %s (attempt %d/%d) — retrying in %ds",
+                    movie_id, attempt + 1, _MAX_RETRIES, wait,
+                )
+                time.sleep(wait)
+                continue
 
-        if resp.status_code != 200:
-            logger.warning("wmdb returned %d for %s", resp.status_code, movie_id)
-            return None
+            if resp.status_code >= 500:
+                wait = _RETRY_BACKOFF[min(attempt, len(_RETRY_BACKOFF) - 1)]
+                logger.warning(
+                    "Server error %d for %s (attempt %d/%d) — retrying in %ds",
+                    resp.status_code, movie_id, attempt + 1, _MAX_RETRIES, wait,
+                )
+                time.sleep(wait)
+                continue
 
-        return self._parse(resp)
+            if resp.status_code != 200:
+                logger.warning("wmdb returned %d for %s", resp.status_code, movie_id)
+                return None
+
+            return self._parse(resp)
+
+        logger.error("All %d retries exhausted for %s", _MAX_RETRIES, movie_id)
+        return None
 
     # ------------------------------------------------------------------
     # Internal helpers
