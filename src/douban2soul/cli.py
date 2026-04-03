@@ -134,7 +134,7 @@ def cmd_scrape(args: argparse.Namespace) -> int:
     print(f"Scraping metadata for {len(movie_ids)} movies...")
 
     cache = MetadataCache() if not args.refresh_cache else MetadataCache(ttl_days=0)
-    scraper = FieldLevelScraper(cache=cache)
+    scraper = FieldLevelScraper(adapter_name=args.adapter, cache=cache)
     batch = BatchScraper(scraper=scraper, resume_file=args.resume_file)
 
     summary = batch.run(movie_ids, resume=args.resume)
@@ -203,7 +203,7 @@ def main():
     # --- scrape ---
     p_scrape = subparsers.add_parser(
         "scrape",
-        help="Scrape movie metadata from wmdb.tv",
+        help="Scrape movie metadata (opencli → wmdb fallback)",
     )
     p_scrape.add_argument("--data", "-d", required=True,
                           help="Path to movie records JSON file")
@@ -215,6 +215,9 @@ def main():
                           help="Checkpoint file path")
     p_scrape.add_argument("--refresh-cache", action="store_true",
                           help="Ignore cached entries and re-fetch")
+    p_scrape.add_argument("--adapter", default="fallback",
+                          choices=["fallback", "opencli", "wmdb"],
+                          help="Metadata source adapter (default: fallback)")
 
     args = parser.parse_args()
 

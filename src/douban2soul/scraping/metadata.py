@@ -1,8 +1,9 @@
 """
-Field-level metadata scraper (V1).
+Field-level metadata scraper.
 
-Fetches movie metadata from a single source (wmdb) and returns a
-per-field result structure with provenance tracking.
+Fetches movie metadata using a configurable adapter (default: fallback
+chain of opencli → wmdb) and returns a per-field result structure with
+provenance tracking.
 """
 
 import logging
@@ -38,14 +39,15 @@ class FieldLevelScraper:
     Parameters
     ----------
     adapter_name:
-        Registered adapter name (default ``"wmdb"``).
+        Registered adapter name (default ``"fallback"``).
+        Available: ``"fallback"`` (opencli → wmdb), ``"opencli"``, ``"wmdb"``.
     cache:
         An optional pre-configured ``MetadataCache``.
     """
 
     def __init__(
         self,
-        adapter_name: str = "wmdb",
+        adapter_name: str = "fallback",
         cache: Optional[MetadataCache] = None,
     ) -> None:
         self._adapter: BaseMetadataAdapter = get_adapter(adapter_name)

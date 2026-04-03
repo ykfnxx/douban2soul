@@ -29,3 +29,5 @@ def available_adapters() -> list[str]:
 
 # Import adapters so they self-register.
 import douban2soul.scraping.adapters.wmdb as _  # noqa: F401, E402
+import douban2soul.scraping.adapters.opencli as _  # noqa: F401, E402
+import douban2soul.scraping.adapters.fallback as _  # noqa: F401, E402
