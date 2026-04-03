@@ -19,8 +19,7 @@ class OpenCLIAdapter(BaseMetadataAdapter):
     Fetch movie metadata via ``opencli douban subject <id> -f json``.
 
     OpenCLI talks directly to Douban, providing authoritative Chinese-language
-    metadata.  It does not return ``country`` or ``duration``; callers that
-    need those fields should fall back to another adapter (e.g. wmdb).
+    metadata including country and duration.
     """
 
     name = "opencli"
@@ -59,19 +58,32 @@ class OpenCLIAdapter(BaseMetadataAdapter):
 
         movie = data[0]
 
-        # Parse year: "(1994)" → "1994"
         year_raw = movie.get("year", "")
-        year = year_raw.strip("() ") if year_raw else None
+        year = str(year_raw).strip("() ") if year_raw else None
 
-        # Parse comma-separated strings into lists
-        genres_raw = movie.get("genres", "")
-        genres = [g.strip() for g in genres_raw.split(",") if g.strip()] if genres_raw else []
+        genres = _to_list(movie.get("genres", ""))
+        directors = _to_list(movie.get("directors", ""))
+        casts = _to_list(movie.get("casts", ""))
 
-        directors_raw = movie.get("directors", "")
-        directors = [d.strip() for d in directors_raw.split(",") if d.strip()] if directors_raw else []
+        # country: array of strings or comma-separated string
+        country_raw = movie.get("country")
+        if isinstance(country_raw, list):
+            country = "/".join(country_raw)
+        elif isinstance(country_raw, str):
+            country = country_raw or None
+        else:
+            country = None
 
-        casts_raw = movie.get("casts", "")
-        casts = [c.strip() for c in casts_raw.split(",") if c.strip()] if casts_raw else []
+        # duration: int (minutes) or string
+        duration_raw = movie.get("duration")
+        if isinstance(duration_raw, (int, float)):
+            duration = int(duration_raw)
+        elif isinstance(duration_raw, str):
+            import re
+            m = re.search(r"\d+", duration_raw)
+            duration = int(m.group()) if m else None
+        else:
+            duration = None
 
         rating = movie.get("rating")
         rating_count = movie.get("ratingCount")
@@ -83,8 +95,17 @@ class OpenCLIAdapter(BaseMetadataAdapter):
             "genre": genres,
             "director": directors,
             "cast": casts[:10],
-            "country": None,  # not available from opencli
-            "duration": None,  # not available from opencli
+            "country": country,
+            "duration": duration,
             "douban_rating": float(rating) if rating is not None else None,
             "rating_count": int(rating_count) if rating_count is not None else None,
         }
+
+
+def _to_list(value: object) -> list[str]:
+    """Convert a value to a list of strings (handles both list and comma-separated string)."""
+    if isinstance(value, list):
+        return [str(v).strip() for v in value if str(v).strip()]
+    if isinstance(value, str) and value:
+        return [v.strip() for v in value.split(",") if v.strip()]
+    return []
