@@ -12,8 +12,6 @@ import json
 import sys
 from pathlib import Path
 
-from douban2soul.analysis.llm_client import LLMClientFactory, AnalysisConfig
-from douban2soul.analysis.profiler import ProfileAnalyzer
 from douban2soul.statistics.engine import StatsEngine
 
 
@@ -54,54 +52,74 @@ def cmd_analyze(args: argparse.Namespace) -> int:
         print("  Please ensure the movie records JSON file exists, or use --data to specify the path")
         return 1
 
-    config = AnalysisConfig(
-        llm_provider=args.provider,
-        model=args.model,
-    )
-
-    try:
-        llm = LLMClientFactory.create(config)
-    except ValueError as e:
-        print(f"Error: {e}")
-        print("  Please set the corresponding environment variable:")
-        print('    export MOONSHOT_API_KEY="sk-xxx"   # for Moonshot')
-        print('    export OPENAI_API_KEY="sk-xxx"     # for OpenAI')
-        return 1
-
+    stats_only = args.stats_only
     output_dir = Path(args.output)
+
+    # LLM is only needed for L2/L4
+    llm = None
+    if not stats_only:
+        from douban2soul.analysis.llm_client import LLMClientFactory, AnalysisConfig
+        from douban2soul.analysis.profiler import ProfileAnalyzer
+
+        config = AnalysisConfig(
+            llm_provider=args.provider,
+            model=args.model,
+        )
+        try:
+            llm = LLMClientFactory.create(config)
+        except ValueError as e:
+            print(f"Error: {e}")
+            print("  Please set the corresponding environment variable:")
+            print('    export MOONSHOT_API_KEY="sk-xxx"   # for Moonshot')
+            print('    export OPENAI_API_KEY="sk-xxx"     # for OpenAI')
+            return 1
+
+    mode = "Statistics Only (L1 + L3)" if stats_only else "Full Analysis (L1-L4)"
+    total_steps = 3 if stats_only else 5
 
     print("=" * 60)
     print("Douban2Soul - Movie Record Personality Profile Analysis")
     print("=" * 60)
     print(f"Data file: {data_path}")
-    print(f"LLM provider: {args.provider}")
+    print(f"Mode: {mode}")
+    if not stats_only:
+        print(f"LLM provider: {args.provider}")
     print(f"Output directory: {output_dir}")
     print("=" * 60)
 
-    print("\n[1/5] Loading data...")
+    step = 0
+
+    step += 1
+    print(f"\n[{step}/{total_steps}] Loading data...")
     data = load_data(str(data_path))
     metadata = load_metadata(args.metadata)
     print(f"  Total movies: {len(data)}")
     print(f"  With comments: {len([d for d in data if d.get('myComment')])}")
     print(f"  Metadata entries: {len(metadata)}")
 
-    print("\n[2/5] Generating L1 base statistics...")
+    step += 1
+    print(f"\n[{step}/{total_steps}] Generating L1 base statistics...")
     stats = StatsEngine(records=data, metadata=metadata)
     l1_report = stats.generate_l1_report()
     save_report(output_dir, "01_base_stats.md", l1_report)
 
-    print("\n[3/5] Generating L2 comment analysis (using LLM)...")
-    profiler = ProfileAnalyzer(llm)
-    l2_report = profiler.generate_comment_analysis(data)
-    save_report(output_dir, "02_comment_insights.md", l2_report)
+    if not stats_only:
+        step += 1
+        print(f"\n[{step}/{total_steps}] Generating L2 comment analysis (using LLM)...")
+        profiler = ProfileAnalyzer(llm)
+        l2_report = profiler.generate_comment_analysis(data)
+        save_report(output_dir, "02_comment_insights.md", l2_report)
 
-    print("\n[4/5] Generating L3 dimensional analysis...")
+    step += 1
+    print(f"\n[{step}/{total_steps}] Generating L3 dimensional analysis...")
     l3_report = stats.generate_l3_report()
     save_report(output_dir, "03_dimension_analysis.md", l3_report)
 
-    print("\n[5/5] Generating L4 comprehensive profile (using LLM)...")
-    l4_report = profiler.generate_final_profile(data, l2_report, l3_report)
-    save_report(output_dir, "04_final_profile.md", l4_report)
+    if not stats_only:
+        step += 1
+        print(f"\n[{step}/{total_steps}] Generating L4 comprehensive profile (using LLM)...")
+        l4_report = profiler.generate_final_profile(data, l2_report, l3_report)
+        save_report(output_dir, "04_final_profile.md", l4_report)
 
     print("\n" + "=" * 60)
     print("Analysis complete!")
@@ -199,6 +217,8 @@ def main():
                            help="Model name")
     p_analyze.add_argument("--metadata", default=_DEFAULT_METADATA_PATH,
                            help="Path to scraped metadata JSON")
+    p_analyze.add_argument("--stats-only", action="store_true",
+                           help="Generate only L1+L3 statistics reports (no LLM needed)")
 
     # --- scrape ---
     p_scrape = subparsers.add_parser(
