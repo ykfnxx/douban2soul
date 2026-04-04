@@ -348,31 +348,12 @@ class StatsEngine:
                 report += f"| {g} | {var:.2f} | {signal} |\n"
             report += "\n"
 
-        if cross["viewing_interval"]:
-            iv = cross["viewing_interval"]
-            report += f"""### Viewing Rhythm
-- **Average interval**: {iv['mean_days']:.1f} days
-- **Median interval**: {iv['median_days']} days
-- **Interval stddev**: {iv['stddev_days']:.1f} days
-- **Weekend ratio**: {cross['weekend_ratio'] * 100:.1f}%
-
-"""
-
         if cross["comment_rating_delta"] != 0:
             delta = cross["comment_rating_delta"]
             trigger = "lower-rated" if delta < 0 else "higher-rated"
             report += f"### Comment Trigger\n"
             report += f"- Rating delta (with vs without comment): {delta:+.2f}\n"
             report += f"- Comments tend to accompany {trigger} films\n\n"
-
-        if cross["era_preference_evolution"]:
-            report += "### Taste Evolution (Genre % by Viewing Quartile)\n"
-            report += "| Quartile | Top Genres |\n"
-            report += "|----------|------------|\n"
-            for label, dist in cross["era_preference_evolution"].items():
-                top = ", ".join(f"{g} ({p * 100:.0f}%)" for g, p in list(dist.items())[:3])
-                report += f"| {label} | {top} |\n"
-            report += "\n"
 
         # K. Creator Style
         if creator["director_style"] or creator["actor_style"]:
@@ -522,11 +503,8 @@ class StatsEngine:
                 "genre_rating_variance": s["cross_dimensional"]["genre_rating_variance"],
                 "director_rating_consistency": s["cross_dimensional"]["director_rating_consistency"],
                 "actor_rating_consistency": s["cross_dimensional"]["actor_rating_consistency"],
-                "viewing_interval": s["cross_dimensional"]["viewing_interval"],
-                "weekend_ratio": s["cross_dimensional"]["weekend_ratio"],
                 "comment_rating_delta": s["cross_dimensional"]["comment_rating_delta"],
                 "hidden_gems_by_genre": s["cross_dimensional"]["hidden_gems_by_genre"],
-                "era_preference_evolution": s["cross_dimensional"]["era_preference_evolution"],
             },
             "creator_style": {
                 "director_style": s["creator_style"]["director_style"][:10],

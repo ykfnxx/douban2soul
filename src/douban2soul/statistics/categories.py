@@ -7,7 +7,6 @@ Categories are independent — no cross-category dependencies.
 
 import math
 from collections import Counter, defaultdict
-from datetime import datetime
 
 import networkx as nx
 
@@ -602,42 +601,6 @@ def compute_cross_dimensional_stats(records: list[dict]) -> dict:
             var = sum((x - mean) ** 2 for x in ratings) / len(ratings)
             actor_rating_consistency[a] = round(math.sqrt(var), 2)
 
-    # --- Viewing interval statistics ---
-    dates = sorted(
-        r["my_date"] for r in records
-        if r.get("my_date") and len(r["my_date"]) >= 10
-    )
-    intervals: list[int] = []
-    weekend_count = 0
-    total_with_date = 0
-    for i, d in enumerate(dates):
-        total_with_date += 1
-        try:
-            dt = datetime.strptime(d, "%Y-%m-%d")
-            if dt.weekday() >= 5:
-                weekend_count += 1
-            if i > 0:
-                prev = datetime.strptime(dates[i - 1], "%Y-%m-%d")
-                delta = (dt - prev).days
-                if delta >= 0:
-                    intervals.append(delta)
-        except ValueError:
-            pass
-
-    interval_stats: dict = {}
-    if intervals:
-        mean_iv = sum(intervals) / len(intervals)
-        sorted_iv = sorted(intervals)
-        median_iv = sorted_iv[len(sorted_iv) // 2]
-        var_iv = sum((x - mean_iv) ** 2 for x in intervals) / len(intervals)
-        interval_stats = {
-            "mean_days": round(mean_iv, 1),
-            "median_days": median_iv,
-            "stddev_days": round(math.sqrt(var_iv), 1),
-        }
-
-    weekend_ratio = weekend_count / total_with_date if total_with_date else 0
-
     # --- Rating-comment correlation ---
     rated_with_comment = [
         r["my_rating"] for r in records
@@ -662,40 +625,14 @@ def compute_cross_dimensional_stats(records: list[dict]) -> dict:
             for g in r["genre"]:
                 gems_genre_counts[g] += 1
 
-    # --- Era preference evolution (genre preferences by viewing year quartiles) ---
-    dated_records = [
-        r for r in records
-        if r.get("my_date") and len(r["my_date"]) >= 4 and r.get("genre")
-    ]
-    dated_records.sort(key=lambda r: r["my_date"])
-    era_evolution: dict[str, dict[str, int]] = {}
-    if len(dated_records) >= 8:
-        q_size = len(dated_records) // 4
-        quartile_labels = ["Q1_earliest", "Q2", "Q3", "Q4_latest"]
-        for qi, label in enumerate(quartile_labels):
-            start = qi * q_size
-            end = start + q_size if qi < 3 else len(dated_records)
-            genre_counts: Counter[str] = Counter()
-            for r in dated_records[start:end]:
-                for g in r["genre"]:
-                    genre_counts[g] += 1
-            total_tags = sum(genre_counts.values())
-            era_evolution[label] = {
-                g: round(c / total_tags, 3)
-                for g, c in genre_counts.most_common(5)
-            }
-
     return {
         "genre_rating_variance": dict(sorted(
             genre_rating_variance.items(), key=lambda x: -x[1]
         )),
         "director_rating_consistency": director_rating_consistency,
         "actor_rating_consistency": actor_rating_consistency,
-        "viewing_interval": interval_stats,
-        "weekend_ratio": round(weekend_ratio, 3),
         "comment_rating_delta": comment_rating_delta,
         "hidden_gems_by_genre": dict(gems_genre_counts.most_common()),
-        "era_preference_evolution": era_evolution,
     }
 
 

@@ -588,18 +588,6 @@ class TestCrossDimensionalStats:
         assert "Act 1" in result["actor_rating_consistency"]
         assert "Act 2" in result["actor_rating_consistency"]
 
-    def test_viewing_intervals(self) -> None:
-        result = compute_cross_dimensional_stats(CROSS_DIM_RECORDS)
-        iv = result["viewing_interval"]
-        assert "mean_days" in iv
-        assert iv["mean_days"] > 0
-        # Intervals: 2, 3, 2, 4, 1 -> mean = 2.4
-        assert iv["mean_days"] == pytest.approx(2.4, abs=0.1)
-
-    def test_weekend_ratio(self) -> None:
-        result = compute_cross_dimensional_stats(CROSS_DIM_RECORDS)
-        assert 0 <= result["weekend_ratio"] <= 1
-
     def test_comment_rating_delta(self) -> None:
         result = compute_cross_dimensional_stats(CROSS_DIM_RECORDS)
         # With comment: [8, 10, 6] avg=8; without: [6, 4, 8] avg=6; delta=2
@@ -613,7 +601,7 @@ class TestCrossDimensionalStats:
     def test_empty_records(self) -> None:
         result = compute_cross_dimensional_stats([])
         assert result["genre_rating_variance"] == {}
-        assert result["viewing_interval"] == {}
+        assert result["hidden_gems_by_genre"] == {}
 
 
 # ------------------------------------------------------------------

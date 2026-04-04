@@ -296,27 +296,27 @@ Report style: professional but accessible, warm yet insightful, well-reasoned.""
 
 ## 各维度分析指引
 
-请逐维度分析，每个维度参考以下数据字段：
+请逐维度分析，每个维度参考以下数据字段（括号内为 JSON 中的实际路径）：
 
 ### E/I（外向/内向）
-参考数据：评论率 (comment_rate)、评论长度 (avg_length)、binge_days、社交类型比例
-- 高评论率 + 长评论 + 频繁观影 → E 倾向
-- 低评论率 + 独立观影 → I 倾向
+参考数据：评论率 (comments.rate)、评论平均长度 (comments.avg_length)、评论长度分布 (comments.length_distribution)
+- 高评论率 + 长评论 + 评论中社交性语言多 → E 倾向
+- 低评论率 + 短评论 → I 倾向
 
 ### S/N（感觉/直觉）
-参考数据：类型多样性 (shannon_entropy)、年代跨度、外语片比例、隐藏佳作数量
+参考数据：类型多样性 (genre.shannon_entropy)、年代跨度 (era.decade_distribution)、国家多样性 (geography.diversity_index)、隐藏佳作 (taste_extremes.hidden_gems)
 - 高多样性 + 跨文化观影 + 发现冷门佳作 → N 倾向
 - 类型集中 + 主流偏好 → S 倾向
 
 ### T/F（思考/情感）
-参考数据：大众对齐度 (crowd_alignment)、评分标准差、评论中分析性vs情感性语言比例
+参考数据：大众对齐度 (crowd_comparison.correlation)、评分标准差 (rating.stddev)、评论中分析性vs情感性语言比例（参考L2报告）
 - 低大众对齐 + 高评分方差 + 分析性语言 → T 倾向
 - 高大众对齐 + 情感性语言 → F 倾向
 
 ### J/P（判断/知觉）
-参考数据：观影间隔规律性 (viewing_interval)、导演忠诚度、类型集中度
-- 规律间隔 + 高导演忠诚 + 类型集中 → J 倾向
-- 不规则间隔 + 类型分散 → P 倾向
+参考数据：导演忠诚度 (director.repeat_ratio)、类型集中度 (genre.cluster_scores)、创作者风格集中度 (creator_style.director_style[].genre_concentration)
+- 高导演忠诚 + 类型集中 + 创作者集中 → J 倾向
+- 类型分散 + 跨类型扩展高 → P 倾向
 
 ## 输出格式
 
