@@ -130,3 +130,33 @@ class TestOpenAICompatClient:
 
         assert result == "test response"
         mock_client.chat.completions.create.assert_called_once()
+
+    @patch.dict("os.environ", {
+        "LLM_API_KEY": "test-key",
+        "LLM_BASE_URL": "https://example.com/v1",
+    })
+    @patch("douban2soul.analysis.llm_client.OpenAI")
+    def test_stream_yields_chunks(self, mock_openai_cls):
+        mock_client = MagicMock()
+        mock_openai_cls.return_value = mock_client
+
+        # Build mock streaming response
+        chunk1 = MagicMock()
+        chunk1.choices = [MagicMock()]
+        chunk1.choices[0].delta.content = "Hello"
+        chunk2 = MagicMock()
+        chunk2.choices = [MagicMock()]
+        chunk2.choices[0].delta.content = " world"
+        chunk3 = MagicMock()
+        chunk3.choices = [MagicMock()]
+        chunk3.choices[0].delta.content = None
+        mock_client.chat.completions.create.return_value = iter([chunk1, chunk2, chunk3])
+
+        config = AnalysisConfig(llm_provider="openai-compat")
+        client = OpenAICompatClient(config)
+        result = list(client.stream("hello"))
+
+        assert result == ["Hello", " world"]
+        mock_client.chat.completions.create.assert_called_once()
+        call_kwargs = mock_client.chat.completions.create.call_args[1]
+        assert call_kwargs["stream"] is True
