@@ -80,7 +80,7 @@ def compute_temporal_stats(records: list[dict]) -> dict:
     # Decade average ratings
     decade_avg = {}
     for decade, ratings in decade_ratings.items():
-        if len(ratings) >= 3:
+        if len(ratings) >= 2:
             decade_avg[decade] = round(sum(ratings) / len(ratings), 1)
 
     # Movies per viewing year
@@ -146,7 +146,7 @@ def compute_genre_stats(records: list[dict]) -> dict:
     # Genre average ratings
     genre_avg_rating = {}
     for g, ratings in genre_ratings.items():
-        if len(ratings) >= 3:
+        if len(ratings) >= 2:
             genre_avg_rating[g] = round(sum(ratings) / len(ratings), 1)
 
     # Genre cluster scores
@@ -175,9 +175,19 @@ def compute_genre_stats(records: list[dict]) -> dict:
         elif avg < personal_mean - 0.5:
             genre_below.append((g, avg))
 
+    # Shannon entropy for genre diversity
+    total_genre_tags = sum(genre_counts.values())
+    shannon_entropy = 0.0
+    if total_genre_tags > 0:
+        for count in genre_counts.values():
+            p = count / total_genre_tags
+            if p > 0:
+                shannon_entropy -= p * math.log2(p)
+
     return {
         "genre_distribution": dict(genre_counts.most_common()),
         "genre_diversity": distinct_genres,
+        "genre_shannon_entropy": round(shannon_entropy, 3),
         "top_genres": top_genres,
         "genre_avg_rating": genre_avg_rating,
         "cluster_scores": cluster_scores,
@@ -208,10 +218,10 @@ def compute_director_stats(records: list[dict]) -> dict:
     distinct_directors = len(director_counts)
     total_with_director = sum(1 for r in records if r.get("director"))
 
-    # Top directors (3+ movies)
+    # Top directors (2+ movies)
     top_directors = []
     for name, count in director_counts.most_common():
-        if count < 3:
+        if count < 2:
             break
         ratings = director_ratings[name]
         avg = round(sum(ratings) / len(ratings), 1) if ratings else 0
@@ -272,7 +282,7 @@ def compute_geography_stats(records: list[dict]) -> dict:
     # Country average ratings
     country_avg = {}
     for c, ratings in country_ratings.items():
-        if len(ratings) >= 3:
+        if len(ratings) >= 2:
             country_avg[c] = round(sum(ratings) / len(ratings), 1)
 
     # Domestic vs foreign
@@ -459,4 +469,79 @@ def compute_habit_stats(records: list[dict]) -> dict:
         "long_film_ratio": round(long_film_ratio, 3),
         "binge_days": binge_days,
         "total_with_duration": len(durations),
+    }
+
+
+# ------------------------------------------------------------------
+# I. Cast Analysis
+# ------------------------------------------------------------------
+
+def compute_cast_stats(records: list[dict]) -> dict:
+    """Category I: Cast/actor analysis metrics."""
+    cast_counts: Counter[str] = Counter()
+    cast_ratings: dict[str, list[int]] = defaultdict(list)
+
+    for r in records:
+        cast = r.get("cast")
+        if not cast:
+            continue
+        for actor in cast:
+            cast_counts[actor] += 1
+            if r["my_rating"] is not None:
+                cast_ratings[actor].append(r["my_rating"])
+
+    distinct_actors = len(cast_counts)
+    total_with_cast = sum(1 for r in records if r.get("cast"))
+
+    # Top actors (2+ movies)
+    top_actors = []
+    for name, count in cast_counts.most_common():
+        if count < 2:
+            break
+        ratings = cast_ratings[name]
+        avg = round(sum(ratings) / len(ratings), 1) if ratings else 0
+        top_actors.append((name, count, avg))
+
+    # Repeat actor ratio: fraction of films whose actor appears 2+ times
+    repeat_actors = {a for a, c in cast_counts.items() if c >= 2}
+    repeat_films = sum(
+        1 for r in records
+        if r.get("cast")
+        and any(a in repeat_actors for a in r["cast"])
+    )
+    repeat_ratio = repeat_films / total_with_cast if total_with_cast else 0
+
+    return {
+        "top_actors": top_actors,
+        "distinct_count": distinct_actors,
+        "repeat_actor_ratio": round(repeat_ratio, 3),
+        "total_with_cast": total_with_cast,
+    }
+
+
+# ------------------------------------------------------------------
+# Hidden Gems & Avoid Zone
+# ------------------------------------------------------------------
+
+def compute_taste_extremes(records: list[dict]) -> dict:
+    """Identify hidden gems and against-the-grain picks."""
+    hidden_gems = []
+    avoid_zone = []
+
+    for r in records:
+        my = r["my_rating"]
+        crowd = r.get("douban_rating")
+        if my is None or crowd is None:
+            continue
+        if my >= 8 and crowd < 6:
+            hidden_gems.append((r["title"], my, crowd))
+        elif my <= 4 and crowd >= 7:
+            avoid_zone.append((r["title"], my, crowd))
+
+    hidden_gems.sort(key=lambda x: x[1] - x[2], reverse=True)
+    avoid_zone.sort(key=lambda x: x[2] - x[1], reverse=True)
+
+    return {
+        "hidden_gems": hidden_gems[:10],
+        "avoid_zone": avoid_zone[:10],
     }

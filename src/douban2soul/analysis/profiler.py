@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """
 Profile Analyzer - LLM-powered personality analysis
-Generates L2 comment analysis and L4 comprehensive personality profile
+Generates L2 comment analysis, L4 comprehensive personality profile,
+and L5 综合中文报告.
 """
 
+import json
 import sys
 from typing import List, Dict
 
@@ -171,3 +173,84 @@ Report style: professional but accessible, warm yet insightful, well-reasoned.""
 
         result = self._call_llm(prompt)
         return f"# L4: Comprehensive Personality Profile\n\n{result}"
+
+    def generate_comprehensive_report(
+        self,
+        llm_context: dict,
+        l2_report: str,
+        l4_report: str,
+    ) -> str:
+        """
+        L5: Comprehensive Chinese personality analysis report.
+        Synthesizes structured statistics + L2/L4 LLM analysis into a single Chinese report.
+
+        Uses llm_context (structured JSON) for all statistical data — this already
+        contains everything from L1/L3 in structured form, so no truncation needed.
+        L2 and L4 are LLM-generated content not available elsewhere.
+        """
+        print("[L5] Generating comprehensive Chinese report...")
+
+        context_json = json.dumps(llm_context, ensure_ascii=False, indent=2)
+
+        prompt = f"""你是一位专业的电影心理学分析师。请基于以下全部分析数据，生成一份完整的中文人格分析报告。
+
+注意：以下数据不包含任何观影时间信息（豆瓣标记时间不等于观影时间），请不要对观影时间做任何推断。
+
+## 结构化统计数据（完整）
+{context_json}
+
+## L2 评论语义分析
+{l2_report}
+
+## L4 综合人格画像
+{l4_report}
+
+## 报告要求
+
+请生成包含以下章节的中文报告：
+
+# 综合人格分析报告
+
+## 一、数据概览
+简要概述观影数据的规模和完整度。
+
+## 二、核心人格特质分析
+基于大五人格模型（开放性、尽责性、外向性、宜人性、神经质），逐维度分析：
+- 每个维度给出 0-100 分的量化评分
+- 结合具体观影数据和评论给出 2-3 句解读
+- 引用具体电影作为证据
+
+## 三、审美偏好画像
+- 类型偏好与审美倾向
+- 艺术片与商业片的平衡
+- 文化视野广度（国产vs外语、地区多样性）
+- 片长偏好与审美耐心
+
+## 四、独特品味特征
+- 高于个人均值的类型（真爱类型）
+- 低于个人均值的类型（踩雷类型）
+- Hidden Gems（用户发现的宝藏电影）
+- 与大众品味的差异点
+
+## 五、观影行为模式
+- 评分习惯（宽容度、一致性）
+- 评论习惯（频率、深度）
+- 导演/演员忠诚度
+
+## 六、个性标签
+5-8 个精准标签，概括这位观影者的核心特征。
+
+## 七、观影推荐方向
+基于画像给出个性化的观影建议。
+
+## 八、总结
+200字以内的核心洞察，突出最显著的 2-3 个特质。
+
+**写作要求：**
+1. 用第二人称"你"叙述，保持亲切但专业的语气
+2. 避免模板化套话，保持个人化分析
+3. 每个论点都要有数据或电影实例支撑
+4. 全文使用中文"""
+
+        result = self._call_llm(prompt)
+        return f"# 综合人格分析报告\n\n{result}"

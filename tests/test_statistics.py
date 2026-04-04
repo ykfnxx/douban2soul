@@ -10,6 +10,7 @@ from douban2soul.statistics.taxonomy import (
 )
 from douban2soul.statistics.merge import merge_records_with_metadata
 from douban2soul.statistics.categories import (
+    compute_cast_stats,
     compute_rating_stats,
     compute_temporal_stats,
     compute_genre_stats,
@@ -18,6 +19,7 @@ from douban2soul.statistics.categories import (
     compute_comment_stats,
     compute_crowd_comparison,
     compute_habit_stats,
+    compute_taste_extremes,
 )
 from douban2soul.statistics.engine import StatsEngine
 
@@ -284,8 +286,10 @@ class TestDirectorStats:
 
     def test_top_directors_threshold(self, merged: list[dict]) -> None:
         result = compute_director_stats(merged)
-        # No director has 3+ films, so top_directors should be empty
-        assert result["top_directors"] == []
+        # Director X has 2 films, which meets the lowered threshold of 2
+        assert len(result["top_directors"]) == 1
+        assert result["top_directors"][0][0] == "Director X"
+        assert result["top_directors"][0][1] == 2
 
     def test_director_avg_rating(self, merged: list[dict]) -> None:
         result = compute_director_stats(merged)
@@ -434,8 +438,115 @@ class TestStatsEngine:
         ctx = engine.generate_llm_context()
         assert ctx["overview"]["metadata_coverage"] == 0.5
 
+    def test_l3_report_includes_cast(self) -> None:
+        engine = StatsEngine(records=SAMPLE_RECORDS, metadata=SAMPLE_METADATA)
+        report = engine.generate_l3_report()
+        assert "Cast Analysis" in report
+
+    def test_llm_context_includes_new_fields(self) -> None:
+        engine = StatsEngine(records=SAMPLE_RECORDS, metadata=SAMPLE_METADATA)
+        ctx = engine.generate_llm_context()
+        assert "cast" in ctx
+        assert "taste_extremes" in ctx
+        assert "shannon_entropy" in ctx["genre"]
+
+    def test_llm_context_excludes_temporal_signals(self) -> None:
+        engine = StatsEngine(records=SAMPLE_RECORDS, metadata=SAMPLE_METADATA)
+        ctx = engine.generate_llm_context()
+        assert "temporal" not in ctx
+        assert "date_range" not in ctx["overview"]
+        assert "binge_days" not in ctx["habits"]
+
     def test_stats_cached(self) -> None:
         engine = StatsEngine(records=SAMPLE_RECORDS, metadata=SAMPLE_METADATA)
         stats1 = engine.stats
         stats2 = engine.stats
         assert stats1 is stats2  # Same object, computed once
+
+
+# ------------------------------------------------------------------
+# Cast Analysis
+# ------------------------------------------------------------------
+
+class TestCastStats:
+    def test_cast_counts(self, merged: list[dict]) -> None:
+        result = compute_cast_stats(merged)
+        # Each actor appears once in sample data, no one reaches 2+
+        assert result["top_actors"] == []
+        assert result["distinct_count"] == 4
+
+    def test_repeat_actor_ratio(self, merged: list[dict]) -> None:
+        result = compute_cast_stats(merged)
+        assert result["total_with_cast"] == 4
+
+    def test_cast_with_repeats(self) -> None:
+        records = [
+            {"cast": ["Actor A", "Actor B"], "my_rating": 8},
+            {"cast": ["Actor A"], "my_rating": 6},
+            {"cast": ["Actor C"], "my_rating": 10},
+        ]
+        result = compute_cast_stats(records)
+        assert len(result["top_actors"]) == 1
+        assert result["top_actors"][0][0] == "Actor A"
+        assert result["top_actors"][0][1] == 2
+        assert result["top_actors"][0][2] == 7.0  # avg(8, 6)
+
+
+# ------------------------------------------------------------------
+# Taste Extremes
+# ------------------------------------------------------------------
+
+class TestTasteExtremes:
+    def test_hidden_gems(self) -> None:
+        records = [
+            {"title": "Gem", "my_rating": 8, "douban_rating": 5.0},
+            {"title": "Normal", "my_rating": 8, "douban_rating": 8.0},
+        ]
+        result = compute_taste_extremes(records)
+        assert len(result["hidden_gems"]) == 1
+        assert result["hidden_gems"][0][0] == "Gem"
+
+    def test_avoid_zone(self) -> None:
+        records = [
+            {"title": "Avoid", "my_rating": 4, "douban_rating": 8.0},
+            {"title": "Normal", "my_rating": 6, "douban_rating": 8.0},
+        ]
+        result = compute_taste_extremes(records)
+        assert len(result["avoid_zone"]) == 1
+        assert result["avoid_zone"][0][0] == "Avoid"
+
+    def test_empty_when_no_extremes(self, merged: list[dict]) -> None:
+        result = compute_taste_extremes(merged)
+        # Sample data gaps are not extreme enough (need >=8 vs <6 or <=4 vs >=7)
+        assert isinstance(result["hidden_gems"], list)
+        assert isinstance(result["avoid_zone"], list)
+
+
+# ------------------------------------------------------------------
+# Genre Shannon Entropy
+# ------------------------------------------------------------------
+
+class TestGenreEntropy:
+    def test_shannon_entropy_present(self, merged: list[dict]) -> None:
+        result = compute_genre_stats(merged)
+        assert "genre_shannon_entropy" in result
+        assert result["genre_shannon_entropy"] > 0
+
+    def test_uniform_distribution_high_entropy(self) -> None:
+        records = [
+            {"genre": ["Drama"], "my_rating": 8},
+            {"genre": ["Comedy"], "my_rating": 8},
+            {"genre": ["Action"], "my_rating": 8},
+            {"genre": ["Horror"], "my_rating": 8},
+        ]
+        result = compute_genre_stats(records)
+        # 4 genres, uniform -> entropy = log2(4) = 2.0
+        assert result["genre_shannon_entropy"] == 2.0
+
+    def test_single_genre_zero_entropy(self) -> None:
+        records = [
+            {"genre": ["Drama"], "my_rating": 8},
+            {"genre": ["Drama"], "my_rating": 6},
+        ]
+        result = compute_genre_stats(records)
+        assert result["genre_shannon_entropy"] == 0.0
