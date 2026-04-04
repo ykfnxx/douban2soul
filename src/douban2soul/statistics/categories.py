@@ -7,6 +7,9 @@ Categories are independent — no cross-category dependencies.
 
 import math
 from collections import Counter, defaultdict
+from datetime import datetime
+
+import networkx as nx
 
 from douban2soul.statistics.taxonomy import GENRE_CLUSTERS, genre_cluster, country_region
 
@@ -544,4 +547,339 @@ def compute_taste_extremes(records: list[dict]) -> dict:
     return {
         "hidden_gems": hidden_gems[:10],
         "avoid_zone": avoid_zone[:10],
+    }
+
+
+# ------------------------------------------------------------------
+# J. Cross-Dimensional Statistics
+# ------------------------------------------------------------------
+
+def compute_cross_dimensional_stats(records: list[dict]) -> dict:
+    """Category J: Cross-dimensional statistics that combine multiple fields."""
+
+    # --- Genre rating variance ---
+    genre_ratings: dict[str, list[int]] = defaultdict(list)
+    for r in records:
+        if not r.get("genre") or r["my_rating"] is None:
+            continue
+        for g in r["genre"]:
+            genre_ratings[g].append(r["my_rating"])
+
+    genre_rating_variance = {}
+    for g, ratings in genre_ratings.items():
+        if len(ratings) >= 3:
+            mean = sum(ratings) / len(ratings)
+            var = sum((x - mean) ** 2 for x in ratings) / len(ratings)
+            genre_rating_variance[g] = round(var, 2)
+
+    # --- Director rating consistency (stddev per director, ≥3 films) ---
+    director_ratings: dict[str, list[int]] = defaultdict(list)
+    for r in records:
+        if not r.get("director") or r["my_rating"] is None:
+            continue
+        for d in r["director"]:
+            director_ratings[d].append(r["my_rating"])
+
+    director_rating_consistency = {}
+    for d, ratings in director_ratings.items():
+        if len(ratings) >= 3:
+            mean = sum(ratings) / len(ratings)
+            var = sum((x - mean) ** 2 for x in ratings) / len(ratings)
+            director_rating_consistency[d] = round(math.sqrt(var), 2)
+
+    # --- Actor rating consistency (stddev per actor, ≥3 films) ---
+    actor_ratings: dict[str, list[int]] = defaultdict(list)
+    for r in records:
+        if not r.get("cast") or r["my_rating"] is None:
+            continue
+        for a in r["cast"]:
+            actor_ratings[a].append(r["my_rating"])
+
+    actor_rating_consistency = {}
+    for a, ratings in actor_ratings.items():
+        if len(ratings) >= 3:
+            mean = sum(ratings) / len(ratings)
+            var = sum((x - mean) ** 2 for x in ratings) / len(ratings)
+            actor_rating_consistency[a] = round(math.sqrt(var), 2)
+
+    # --- Viewing interval statistics ---
+    dates = sorted(
+        r["my_date"] for r in records
+        if r.get("my_date") and len(r["my_date"]) >= 10
+    )
+    intervals: list[int] = []
+    weekend_count = 0
+    total_with_date = 0
+    for i, d in enumerate(dates):
+        total_with_date += 1
+        try:
+            dt = datetime.strptime(d, "%Y-%m-%d")
+            if dt.weekday() >= 5:
+                weekend_count += 1
+            if i > 0:
+                prev = datetime.strptime(dates[i - 1], "%Y-%m-%d")
+                delta = (dt - prev).days
+                if delta >= 0:
+                    intervals.append(delta)
+        except ValueError:
+            pass
+
+    interval_stats: dict = {}
+    if intervals:
+        mean_iv = sum(intervals) / len(intervals)
+        sorted_iv = sorted(intervals)
+        median_iv = sorted_iv[len(sorted_iv) // 2]
+        var_iv = sum((x - mean_iv) ** 2 for x in intervals) / len(intervals)
+        interval_stats = {
+            "mean_days": round(mean_iv, 1),
+            "median_days": median_iv,
+            "stddev_days": round(math.sqrt(var_iv), 1),
+        }
+
+    weekend_ratio = weekend_count / total_with_date if total_with_date else 0
+
+    # --- Rating-comment correlation ---
+    rated_with_comment = [
+        r["my_rating"] for r in records
+        if r.get("my_comment") and r["my_rating"] is not None
+    ]
+    rated_without_comment = [
+        r["my_rating"] for r in records
+        if not r.get("my_comment") and r["my_rating"] is not None
+    ]
+    avg_with = sum(rated_with_comment) / len(rated_with_comment) if rated_with_comment else 0
+    avg_without = sum(rated_without_comment) / len(rated_without_comment) if rated_without_comment else 0
+    comment_rating_delta = round(avg_with - avg_without, 2)
+
+    # --- Hidden gems by genre ---
+    gems_genre_counts: Counter[str] = Counter()
+    for r in records:
+        my = r["my_rating"]
+        crowd = r.get("douban_rating")
+        if my is None or crowd is None or not r.get("genre"):
+            continue
+        if my >= 8 and crowd < 6:
+            for g in r["genre"]:
+                gems_genre_counts[g] += 1
+
+    # --- Era preference evolution (genre preferences by viewing year quartiles) ---
+    dated_records = [
+        r for r in records
+        if r.get("my_date") and len(r["my_date"]) >= 4 and r.get("genre")
+    ]
+    dated_records.sort(key=lambda r: r["my_date"])
+    era_evolution: dict[str, dict[str, int]] = {}
+    if len(dated_records) >= 8:
+        q_size = len(dated_records) // 4
+        quartile_labels = ["Q1_earliest", "Q2", "Q3", "Q4_latest"]
+        for qi, label in enumerate(quartile_labels):
+            start = qi * q_size
+            end = start + q_size if qi < 3 else len(dated_records)
+            genre_counts: Counter[str] = Counter()
+            for r in dated_records[start:end]:
+                for g in r["genre"]:
+                    genre_counts[g] += 1
+            total_tags = sum(genre_counts.values())
+            era_evolution[label] = {
+                g: round(c / total_tags, 3)
+                for g, c in genre_counts.most_common(5)
+            }
+
+    return {
+        "genre_rating_variance": dict(sorted(
+            genre_rating_variance.items(), key=lambda x: -x[1]
+        )),
+        "director_rating_consistency": director_rating_consistency,
+        "actor_rating_consistency": actor_rating_consistency,
+        "viewing_interval": interval_stats,
+        "weekend_ratio": round(weekend_ratio, 3),
+        "comment_rating_delta": comment_rating_delta,
+        "hidden_gems_by_genre": dict(gems_genre_counts.most_common()),
+        "era_preference_evolution": era_evolution,
+    }
+
+
+# ------------------------------------------------------------------
+# K. Creator Style Analysis
+# ------------------------------------------------------------------
+
+def compute_creator_style_stats(records: list[dict]) -> dict:
+    """Category K: Creator style analysis — director+actor genre affinity."""
+
+    # Build per-creator genre distributions (≥3 films threshold)
+    director_genres: dict[str, Counter[str]] = defaultdict(Counter)
+    director_counts: Counter[str] = Counter()
+    actor_genres: dict[str, Counter[str]] = defaultdict(Counter)
+    actor_counts: Counter[str] = Counter()
+
+    # Also track director-actor combinations
+    director_actor_pairs: Counter[tuple[str, str]] = Counter()
+
+    for r in records:
+        genres = r.get("genre") or []
+        directors = r.get("director") or []
+        actors = r.get("cast") or []
+
+        for d in directors:
+            director_counts[d] += 1
+            for g in genres:
+                director_genres[d][g] += 1
+
+        for a in actors:
+            actor_counts[a] += 1
+            for g in genres:
+                actor_genres[a][g] += 1
+
+        for d in directors:
+            for a in actors:
+                director_actor_pairs[(d, a)] += 1
+
+    # Director genre affinity (≥3 films)
+    director_style: list[dict] = []
+    for name, count in director_counts.most_common():
+        if count < 3:
+            break
+        genre_dist = director_genres[name]
+        total_tags = sum(genre_dist.values())
+        dominant_genre = genre_dist.most_common(1)[0][0] if genre_dist else ""
+        dominant_ratio = genre_dist[dominant_genre] / total_tags if total_tags else 0
+        director_style.append({
+            "name": name,
+            "film_count": count,
+            "genre_distribution": {
+                g: round(c / total_tags, 3) for g, c in genre_dist.most_common(5)
+            },
+            "dominant_genre": dominant_genre,
+            "genre_concentration": round(dominant_ratio, 3),
+        })
+
+    # Actor genre affinity (≥3 films)
+    actor_style: list[dict] = []
+    for name, count in actor_counts.most_common():
+        if count < 3:
+            break
+        genre_dist = actor_genres[name]
+        total_tags = sum(genre_dist.values())
+        dominant_genre = genre_dist.most_common(1)[0][0] if genre_dist else ""
+        dominant_ratio = genre_dist[dominant_genre] / total_tags if total_tags else 0
+        # Cross-genre expansion: % of films NOT in dominant genre
+        non_dominant_films = count - genre_dist[dominant_genre] if dominant_genre else 0
+        expansion_ratio = non_dominant_films / count if count else 0
+        actor_style.append({
+            "name": name,
+            "film_count": count,
+            "genre_distribution": {
+                g: round(c / total_tags, 3) for g, c in genre_dist.most_common(5)
+            },
+            "dominant_genre": dominant_genre,
+            "genre_concentration": round(dominant_ratio, 3),
+            "cross_genre_expansion": round(expansion_ratio, 3),
+        })
+
+    # Top director-actor combos (≥2 films together)
+    top_combos = [
+        {"director": d, "actor": a, "films_together": c}
+        for (d, a), c in director_actor_pairs.most_common()
+        if c >= 2
+    ][:10]
+
+    return {
+        "director_style": director_style[:15],
+        "actor_style": actor_style[:15],
+        "top_director_actor_combos": top_combos,
+    }
+
+
+# ------------------------------------------------------------------
+# L. Graph Analysis (networkx)
+# ------------------------------------------------------------------
+
+def compute_graph_stats(records: list[dict]) -> dict:
+    """Category L: Lightweight viewing network analysis using networkx."""
+    G = nx.Graph()
+
+    movie_nodes = []
+    for r in records:
+        mid = r.get("movie_id", r.get("title", ""))
+        if not mid:
+            continue
+        movie_nodes.append(mid)
+        G.add_node(mid, type="movie")
+
+        for d in (r.get("director") or []):
+            G.add_node(d, type="director")
+            G.add_edge(mid, d)
+
+        for a in (r.get("cast") or []):
+            G.add_node(a, type="actor")
+            G.add_edge(mid, a)
+
+        for g in (r.get("genre") or []):
+            G.add_node(g, type="genre")
+            G.add_edge(mid, g)
+
+    if len(movie_nodes) < 2:
+        return {
+            "movie_count": len(movie_nodes),
+            "total_nodes": G.number_of_nodes(),
+            "total_edges": G.number_of_edges(),
+            "communities": 0,
+            "avg_movie_degree": 0,
+            "density": 0,
+            "connected_components": 0,
+        }
+
+    # Movie subgraph: project movies onto shared entities
+    movie_set = set(movie_nodes)
+    movie_degrees = [G.degree(m) for m in movie_nodes if G.has_node(m)]
+    avg_degree = sum(movie_degrees) / len(movie_degrees) if movie_degrees else 0
+
+    # Connected components
+    components = list(nx.connected_components(G))
+    num_components = len(components)
+
+    # Graph density
+    density = nx.density(G)
+
+    # Community detection on the full graph
+    num_communities = 0
+    try:
+        communities = list(nx.community.greedy_modularity_communities(G))
+        num_communities = len(communities)
+    except Exception:
+        num_communities = num_components
+
+    # Movie connectivity: build projected movie-movie graph via shared entities
+    movie_proj = nx.Graph()
+    movie_proj.add_nodes_from(movie_nodes)
+    entity_to_movies: dict[str, list[str]] = defaultdict(list)
+    for m in movie_nodes:
+        for neighbor in G.neighbors(m):
+            if neighbor not in movie_set:
+                entity_to_movies[neighbor].append(m)
+
+    for entity, linked_movies in entity_to_movies.items():
+        for i in range(len(linked_movies)):
+            for j in range(i + 1, len(linked_movies)):
+                if movie_proj.has_edge(linked_movies[i], linked_movies[j]):
+                    movie_proj[linked_movies[i]][linked_movies[j]]["weight"] += 1
+                else:
+                    movie_proj.add_edge(linked_movies[i], linked_movies[j], weight=1)
+
+    # Clustering coefficient on projected movie graph
+    avg_clustering = nx.average_clustering(movie_proj) if movie_proj.number_of_edges() > 0 else 0
+
+    # Isolated movies (no shared director/actor/genre with any other movie)
+    isolated = sum(1 for m in movie_nodes if movie_proj.degree(m) == 0)
+
+    return {
+        "movie_count": len(movie_nodes),
+        "total_nodes": G.number_of_nodes(),
+        "total_edges": G.number_of_edges(),
+        "communities": num_communities,
+        "avg_movie_degree": round(avg_degree, 1),
+        "density": round(density, 4),
+        "connected_components": num_components,
+        "movie_clustering_coefficient": round(avg_clustering, 3),
+        "isolated_movies": isolated,
     }
