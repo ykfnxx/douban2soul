@@ -64,6 +64,7 @@ def cmd_analyze(args: argparse.Namespace) -> int:
         config = AnalysisConfig(
             llm_provider=args.provider,
             model=args.model,
+            base_url=args.base_url,
         )
         try:
             llm = LLMClientFactory.create(config)
@@ -72,6 +73,7 @@ def cmd_analyze(args: argparse.Namespace) -> int:
             print("  Please set the corresponding environment variable:")
             print('    export MOONSHOT_API_KEY="sk-xxx"   # for Moonshot')
             print('    export OPENAI_API_KEY="sk-xxx"     # for OpenAI')
+            print('    export LLM_API_KEY="sk-xxx" LLM_BASE_URL="https://..." # for openai-compat')
             return 1
 
     mode = "Statistics Only (L1 + L3)" if stats_only else "Full Analysis (L1-L4)"
@@ -211,10 +213,12 @@ def main():
     p_analyze.add_argument("--output", "-o", default="output",
                            help="Output directory")
     p_analyze.add_argument("--provider", "-p", default="moonshot",
-                           choices=["moonshot", "openai", "dashscope", "deepseek"],
-                           help="LLM provider")
+                           choices=["moonshot", "openai", "dashscope", "deepseek", "openai-compat"],
+                           help="LLM provider (use openai-compat for any OpenAI API-compatible service)")
     p_analyze.add_argument("--model", "-m", default=None,
                            help="Model name")
+    p_analyze.add_argument("--base-url", default=None,
+                           help="API base URL (required for openai-compat provider)")
     p_analyze.add_argument("--metadata", default=_DEFAULT_METADATA_PATH,
                            help="Path to scraped metadata JSON")
     p_analyze.add_argument("--stats-only", action="store_true",

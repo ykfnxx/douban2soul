@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """
 Unified LLM Client Interface
-Supports multiple providers: Moonshot, OpenAI, DashScope, DeepSeek
+Supports multiple providers: Moonshot, OpenAI, DashScope, DeepSeek,
+and any OpenAI-compatible API via the ``openai-compat`` provider.
 """
 
 import os
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
+
+from openai import OpenAI
 
 
 @dataclass
@@ -18,6 +21,7 @@ class AnalysisConfig:
     model: Optional[str] = None
     temperature: float = 0.7
     max_tokens: int = 4000
+    base_url: Optional[str] = None  # for openai-compat provider
 
 
 class BaseLLMClient(ABC):
@@ -36,11 +40,6 @@ class MoonshotClient(BaseLLMClient):
 
     def __init__(self, config: AnalysisConfig):
         super().__init__(config)
-        try:
-            from openai import OpenAI
-        except ImportError:
-            raise ImportError("Please install openai: pip install openai>=1.0.0")
-
         api_key = config.api_key or os.getenv("MOONSHOT_API_KEY")
         if not api_key:
             raise ValueError("Please set the MOONSHOT_API_KEY environment variable")
@@ -66,11 +65,6 @@ class OpenAIClient(BaseLLMClient):
 
     def __init__(self, config: AnalysisConfig):
         super().__init__(config)
-        try:
-            from openai import OpenAI
-        except ImportError:
-            raise ImportError("Please install openai: pip install openai>=1.0.0")
-
         api_key = config.api_key or os.getenv("OPENAI_API_KEY")
         if not api_key:
             raise ValueError("Please set the OPENAI_API_KEY environment variable")
@@ -122,11 +116,6 @@ class DeepSeekClient(BaseLLMClient):
 
     def __init__(self, config: AnalysisConfig):
         super().__init__(config)
-        try:
-            from openai import OpenAI
-        except ImportError:
-            raise ImportError("Please install openai: pip install openai>=1.0.0")
-
         api_key = config.api_key or os.getenv("DEEPSEEK_API_KEY")
         if not api_key:
             raise ValueError("Please set the DEEPSEEK_API_KEY environment variable")
@@ -147,6 +136,45 @@ class DeepSeekClient(BaseLLMClient):
         return resp.choices[0].message.content
 
 
+class OpenAICompatClient(BaseLLMClient):
+    """
+    Generic client for any OpenAI API-compatible provider.
+
+    Configuration via environment variables or AnalysisConfig:
+      - ``LLM_API_KEY`` / config.api_key   — API key (required)
+      - ``LLM_BASE_URL`` / config.base_url — API base URL (required)
+      - ``LLM_MODEL`` / config.model       — Model name (default: gpt-3.5-turbo)
+    """
+
+    def __init__(self, config: AnalysisConfig):
+        super().__init__(config)
+        api_key = config.api_key or os.getenv("LLM_API_KEY")
+        if not api_key:
+            raise ValueError(
+                "Please set the LLM_API_KEY environment variable "
+                "or pass --api-key for openai-compat provider"
+            )
+
+        base_url = config.base_url or os.getenv("LLM_BASE_URL")
+        if not base_url:
+            raise ValueError(
+                "Please set the LLM_BASE_URL environment variable "
+                "or pass --base-url for openai-compat provider"
+            )
+
+        self.client = OpenAI(api_key=api_key, base_url=base_url)
+        self.model = config.model or os.getenv("LLM_MODEL", "gpt-3.5-turbo")
+
+    def complete(self, prompt: str) -> str:
+        resp = self.client.chat.completions.create(
+            model=self.model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=self.config.temperature,
+            max_tokens=self.config.max_tokens,
+        )
+        return resp.choices[0].message.content
+
+
 class LLMClientFactory:
     """LLM client factory"""
 
@@ -155,6 +183,7 @@ class LLMClientFactory:
         "moonshot": MoonshotClient,
         "dashscope": DashScopeClient,
         "deepseek": DeepSeekClient,
+        "openai-compat": OpenAICompatClient,
     }
 
     @staticmethod
