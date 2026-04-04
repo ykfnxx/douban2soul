@@ -4,6 +4,7 @@ Profile Analyzer - LLM-powered personality analysis
 Generates L2 comment analysis and L4 comprehensive personality profile
 """
 
+import sys
 from typing import List, Dict
 
 from douban2soul.analysis.llm_client import BaseLLMClient
@@ -12,8 +13,22 @@ from douban2soul.analysis.llm_client import BaseLLMClient
 class ProfileAnalyzer:
     """LLM-powered personality profile analyzer"""
 
-    def __init__(self, llm_client: BaseLLMClient):
+    def __init__(self, llm_client: BaseLLMClient, stream: bool = False):
         self.llm = llm_client
+        self.stream = stream
+
+    def _call_llm(self, prompt: str) -> str:
+        """Call LLM with optional streaming output to stdout."""
+        if not self.stream:
+            return self.llm.complete(prompt)
+        chunks: list[str] = []
+        for chunk in self.llm.stream(prompt):
+            sys.stdout.write(chunk)
+            sys.stdout.flush()
+            chunks.append(chunk)
+        sys.stdout.write("\n")
+        sys.stdout.flush()
+        return "".join(chunks)
 
     def generate_comment_analysis(self, data: List[Dict]) -> str:
         """
@@ -93,7 +108,7 @@ Expression patterns, expertise level, unique phrasing, humor
 
 Please output in structured Markdown format."""
 
-        result = self.llm.complete(prompt)
+        result = self._call_llm(prompt)
         return f"# L2: Comment Semantic Analysis\n\n{result}"
 
     def generate_final_profile(self, data: List[Dict], l2_analysis: str, l3_analysis: str) -> str:
@@ -154,5 +169,5 @@ A core insight in under 200 words.
 
 Report style: professional but accessible, warm yet insightful, well-reasoned."""
 
-        result = self.llm.complete(prompt)
+        result = self._call_llm(prompt)
         return f"# L4: Comprehensive Personality Profile\n\n{result}"

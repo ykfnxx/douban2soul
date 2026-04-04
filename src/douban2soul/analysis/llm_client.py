@@ -8,7 +8,7 @@ and any OpenAI-compatible API via the ``openai-compat`` provider.
 import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Iterator, Optional
 
 from openai import OpenAI
 
@@ -33,6 +33,25 @@ class BaseLLMClient(ABC):
     @abstractmethod
     def complete(self, prompt: str) -> str:
         pass
+
+    def stream(self, prompt: str) -> Iterator[str]:
+        """Yield response chunks. Default: single chunk from complete()."""
+        yield self.complete(prompt)
+
+
+def _openai_stream(client, model: str, prompt: str, config: AnalysisConfig) -> Iterator[str]:
+    """Shared streaming helper for OpenAI SDK-based clients."""
+    resp = client.chat.completions.create(
+        model=model,
+        messages=[{"role": "user", "content": prompt}],
+        temperature=config.temperature,
+        max_tokens=config.max_tokens,
+        stream=True,
+    )
+    for chunk in resp:
+        delta = chunk.choices[0].delta if chunk.choices else None
+        if delta and delta.content:
+            yield delta.content
 
 
 class MoonshotClient(BaseLLMClient):
@@ -59,6 +78,9 @@ class MoonshotClient(BaseLLMClient):
         )
         return resp.choices[0].message.content
 
+    def stream(self, prompt: str) -> Iterator[str]:
+        return _openai_stream(self.client, self.model, prompt, self.config)
+
 
 class OpenAIClient(BaseLLMClient):
     """OpenAI GPT"""
@@ -80,6 +102,9 @@ class OpenAIClient(BaseLLMClient):
             max_tokens=self.config.max_tokens
         )
         return resp.choices[0].message.content
+
+    def stream(self, prompt: str) -> Iterator[str]:
+        return _openai_stream(self.client, self.model, prompt, self.config)
 
 
 class DashScopeClient(BaseLLMClient):
@@ -135,6 +160,9 @@ class DeepSeekClient(BaseLLMClient):
         )
         return resp.choices[0].message.content
 
+    def stream(self, prompt: str) -> Iterator[str]:
+        return _openai_stream(self.client, self.model, prompt, self.config)
+
 
 class OpenAICompatClient(BaseLLMClient):
     """
@@ -173,6 +201,9 @@ class OpenAICompatClient(BaseLLMClient):
             max_tokens=self.config.max_tokens,
         )
         return resp.choices[0].message.content
+
+    def stream(self, prompt: str) -> Iterator[str]:
+        return _openai_stream(self.client, self.model, prompt, self.config)
 
 
 class LLMClientFactory:

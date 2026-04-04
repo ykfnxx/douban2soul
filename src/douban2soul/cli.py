@@ -108,7 +108,7 @@ def cmd_analyze(args: argparse.Namespace) -> int:
     if not stats_only:
         step += 1
         print(f"\n[{step}/{total_steps}] Generating L2 comment analysis (using LLM)...")
-        profiler = ProfileAnalyzer(llm)
+        profiler = ProfileAnalyzer(llm, stream=args.stream)
         l2_report = profiler.generate_comment_analysis(data)
         save_report(output_dir, "02_comment_insights.md", l2_report)
 
@@ -221,6 +221,8 @@ def main():
                            help="API base URL (required for openai-compat provider)")
     p_analyze.add_argument("--metadata", default=_DEFAULT_METADATA_PATH,
                            help="Path to scraped metadata JSON")
+    p_analyze.add_argument("--stream", action="store_true",
+                           help="Stream LLM output to terminal in real-time")
     p_analyze.add_argument("--stats-only", action="store_true",
                            help="Generate only L1+L3 statistics reports (no LLM needed)")
 
