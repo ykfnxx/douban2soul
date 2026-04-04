@@ -115,11 +115,7 @@ class StatsEngine:
 - **Rated**: {rated} ({rated / total * 100:.1f}%)
 - **With Comments**: {c['comment_count']} ({c['comment_rate'] * 100:.1f}%)
 - **Metadata Coverage**: {metadata_count} ({metadata_count / total * 100:.1f}%)
-"""
-        if t["date_range"]:
-            report += f"- **Date Range**: {t['date_range'][0]} to {t['date_range'][1]}\n"
 
-        report += f"""
 ## Rating Statistics
 - **Average Rating**: {r['mean']:.2f} / 10
 - **Median Rating**: {r['median']}
@@ -134,16 +130,6 @@ class StatsEngine:
             pct = count / rated * 100 if rated else 0
             bar = "\u2588" * int(pct / 2)
             report += f"| {score} | {count} | {pct:.1f}% | {bar} |\n"
-
-        # Viewing year distribution (top 10)
-        report += """
-## Viewing Year Distribution (Top 10)
-| Year | Count |
-|------|-------|
-"""
-        year_dist = t["viewing_year_distribution"]
-        for year, count in sorted(year_dist.items(), key=lambda x: -x[1])[:10]:
-            report += f"| {year} | {count} |\n"
 
         # Comment overview
         report += f"""
@@ -184,10 +170,9 @@ class StatsEngine:
             report += f"| {decade} | {count} | {avg} |\n"
 
         report += f"""
-### Temporal Orientation
+### Era Orientation
 - **Recency ratio (post-2020)**: {t['recency_ratio'] * 100:.1f}%
 - **Classic count (pre-2000)**: {t['pre_2000_count']}
-- **Peak viewing years**: {', '.join(str(y) for y in t['peak_years'])}
 
 """
         # C. Genre Profile
@@ -297,7 +282,6 @@ class StatsEngine:
 
 - **Average film duration**: {h['avg_duration']:.0f} min
 - **Long films (\u2265150 min)**: {h['long_film_ratio'] * 100:.1f}%
-- **Binge days (\u22653 films/day)**: {h['binge_days']}
 
 ### Duration Distribution
 | Category | Count |
@@ -372,38 +356,55 @@ class StatsEngine:
                 "stddev": s["rating"]["stddev"],
                 "distribution": s["rating"]["distribution"],
             },
+            "era": {
+                "decade_distribution": s["temporal"]["decade_distribution"],
+                "decade_avg_rating": s["temporal"]["decade_avg_rating"],
+                "recency_ratio": s["temporal"]["recency_ratio"],
+                "pre_2000_count": s["temporal"]["pre_2000_count"],
+            },
             "genre": {
-                "top_genres": s["genre"]["top_genres"][:10],
+                "top_genres": s["genre"]["top_genres"][:15],
+                "genre_avg_rating": s["genre"]["genre_avg_rating"],
                 "cluster_scores": s["genre"]["cluster_scores"],
                 "diversity_index": s["genre"]["genre_diversity"],
                 "shannon_entropy": s["genre"]["genre_shannon_entropy"],
+                "above_personal_mean": s["genre"]["genre_above_mean"],
+                "below_personal_mean": s["genre"]["genre_below_mean"],
             },
             "director": {
                 "top_directors": [
                     (name, count, avg)
-                    for name, count, avg in s["director"]["top_directors"][:10]
+                    for name, count, avg in s["director"]["top_directors"][:15]
                 ],
                 "repeat_ratio": s["director"]["repeat_director_ratio"],
                 "distinct_count": s["director"]["distinct_count"],
             },
             "geography": {
                 "top_countries": s["geography"]["top_countries"],
+                "country_avg_rating": s["geography"]["country_avg_rating"],
                 "domestic_ratio": s["geography"]["domestic_ratio"],
                 "diversity_index": s["geography"]["country_diversity"],
                 "region_scores": s["geography"]["region_scores"],
             },
             "crowd_comparison": {
                 "mean_gap": s["crowd"]["rating_gap_mean"],
+                "gap_stddev": s["crowd"]["rating_gap_stddev"],
                 "correlation": s["crowd"]["crowd_alignment_score"],
+                "pair_count": s["crowd"]["pair_count"],
+                "overrated_movies": s["crowd"]["overrated_movies"][:5],
+                "underrated_movies": s["crowd"]["underrated_movies"][:5],
             },
             "comments": {
                 "rate": s["comments"]["comment_rate"],
                 "avg_length": s["comments"]["avg_length"],
                 "length_distribution": s["comments"]["length_distribution"],
+                "avg_rating_with_comment": s["comments"]["avg_rating_with_comment"],
+                "avg_rating_without_comment": s["comments"]["avg_rating_without_comment"],
             },
             "habits": {
                 "avg_duration": s["habits"]["avg_duration"],
                 "long_film_ratio": s["habits"]["long_film_ratio"],
+                "duration_distribution": s["habits"]["duration_distribution"],
             },
             "cast": {
                 "top_actors": [
