@@ -152,7 +152,7 @@ class OpenAICompatClient(BaseLLMClient):
         if not api_key:
             raise ValueError(
                 "Please set the LLM_API_KEY environment variable "
-                "or pass --api-key for openai-compat provider"
+                "for openai-compat provider"
             )
 
         base_url = config.base_url or os.getenv("LLM_BASE_URL")
