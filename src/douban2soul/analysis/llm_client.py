@@ -20,7 +20,7 @@ class AnalysisConfig:
     api_key: Optional[str] = None
     model: Optional[str] = None
     temperature: float = 0.7
-    max_tokens: int = 4000
+    max_tokens: int = 16384
     base_url: Optional[str] = None  # for openai-compat provider
 
 

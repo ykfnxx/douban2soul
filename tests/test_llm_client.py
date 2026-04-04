@@ -20,7 +20,7 @@ class TestAnalysisConfig:
         assert config.llm_provider == "moonshot"
         assert config.base_url is None
         assert config.temperature == 0.7
-        assert config.max_tokens == 4000
+        assert config.max_tokens == 16384
 
     def test_custom_values(self):
         config = AnalysisConfig(
