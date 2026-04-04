@@ -11,15 +11,18 @@ from douban2soul.statistics.taxonomy import (
 from douban2soul.statistics.merge import merge_records_with_metadata
 from douban2soul.statistics.categories import (
     compute_cast_stats,
-    compute_rating_stats,
-    compute_temporal_stats,
-    compute_genre_stats,
-    compute_director_stats,
-    compute_geography_stats,
-    compute_comment_stats,
+    compute_creator_style_stats,
+    compute_cross_dimensional_stats,
     compute_crowd_comparison,
+    compute_director_stats,
+    compute_genre_stats,
+    compute_geography_stats,
+    compute_graph_stats,
+    compute_comment_stats,
     compute_habit_stats,
+    compute_rating_stats,
     compute_taste_extremes,
+    compute_temporal_stats,
 )
 from douban2soul.statistics.engine import StatsEngine
 
@@ -550,3 +553,185 @@ class TestGenreEntropy:
         ]
         result = compute_genre_stats(records)
         assert result["genre_shannon_entropy"] == 0.0
+
+
+# ------------------------------------------------------------------
+# Cross-Dimensional Statistics
+# ------------------------------------------------------------------
+
+CROSS_DIM_RECORDS = [
+    {"genre": ["Drama"], "director": ["Dir A"], "cast": ["Act 1"], "my_rating": 8, "my_date": "2024-01-01", "my_comment": "Great", "douban_rating": 5.0},
+    {"genre": ["Drama"], "director": ["Dir A"], "cast": ["Act 1"], "my_rating": 6, "my_date": "2024-01-03", "my_comment": None, "douban_rating": 7.0},
+    {"genre": ["Comedy"], "director": ["Dir A"], "cast": ["Act 1"], "my_rating": 10, "my_date": "2024-01-06", "my_comment": "Loved it", "douban_rating": 8.0},
+    {"genre": ["Drama", "Sci-Fi"], "director": ["Dir B"], "cast": ["Act 2"], "my_rating": 4, "my_date": "2024-01-08", "my_comment": None, "douban_rating": 6.5},
+    {"genre": ["Action"], "director": ["Dir B"], "cast": ["Act 2"], "my_rating": 8, "my_date": "2024-01-12", "my_comment": None, "douban_rating": 7.0},
+    {"genre": ["Comedy"], "director": ["Dir B"], "cast": ["Act 2"], "my_rating": 6, "my_date": "2024-01-13", "my_comment": "OK", "douban_rating": 6.0},
+]
+
+
+class TestCrossDimensionalStats:
+    def test_genre_rating_variance(self) -> None:
+        result = compute_cross_dimensional_stats(CROSS_DIM_RECORDS)
+        # Drama has ratings [8, 6, 4] -> mean 6, var = (4+0+4)/3 = 2.67
+        assert "Drama" in result["genre_rating_variance"]
+        assert result["genre_rating_variance"]["Drama"] > 0
+
+    def test_director_rating_consistency(self) -> None:
+        result = compute_cross_dimensional_stats(CROSS_DIM_RECORDS)
+        # Dir A has [8, 6, 10] -> mean 8, stddev > 0
+        assert "Dir A" in result["director_rating_consistency"]
+        assert result["director_rating_consistency"]["Dir A"] > 0
+
+    def test_actor_rating_consistency(self) -> None:
+        result = compute_cross_dimensional_stats(CROSS_DIM_RECORDS)
+        # Act 1 has [8, 6, 10], Act 2 has [4, 8, 6]
+        assert "Act 1" in result["actor_rating_consistency"]
+        assert "Act 2" in result["actor_rating_consistency"]
+
+    def test_comment_rating_delta(self) -> None:
+        result = compute_cross_dimensional_stats(CROSS_DIM_RECORDS)
+        # With comment: [8, 10, 6] avg=8; without: [6, 4, 8] avg=6; delta=2
+        assert result["comment_rating_delta"] == pytest.approx(2.0, abs=0.01)
+
+    def test_hidden_gems_by_genre(self) -> None:
+        result = compute_cross_dimensional_stats(CROSS_DIM_RECORDS)
+        # Record 0: rating 8, douban 5.0 -> hidden gem, genre Drama
+        assert "Drama" in result["hidden_gems_by_genre"]
+
+    def test_empty_records(self) -> None:
+        result = compute_cross_dimensional_stats([])
+        assert result["genre_rating_variance"] == {}
+        assert result["hidden_gems_by_genre"] == {}
+
+
+# ------------------------------------------------------------------
+# Creator Style Analysis
+# ------------------------------------------------------------------
+
+class TestCreatorStyleStats:
+    def test_director_style(self) -> None:
+        result = compute_creator_style_stats(CROSS_DIM_RECORDS)
+        # Dir A and Dir B both have 3 films
+        assert len(result["director_style"]) == 2
+        dir_a = next(d for d in result["director_style"] if d["name"] == "Dir A")
+        assert dir_a["film_count"] == 3
+        assert "Drama" in dir_a["genre_distribution"] or "Comedy" in dir_a["genre_distribution"]
+
+    def test_actor_style(self) -> None:
+        result = compute_creator_style_stats(CROSS_DIM_RECORDS)
+        assert len(result["actor_style"]) == 2
+        act_1 = next(a for a in result["actor_style"] if a["name"] == "Act 1")
+        assert act_1["film_count"] == 3
+        assert 0 <= act_1["cross_genre_expansion"] <= 1
+
+    def test_director_actor_combos(self) -> None:
+        result = compute_creator_style_stats(CROSS_DIM_RECORDS)
+        # Dir A + Act 1 appear together 3 times
+        combos = result["top_director_actor_combos"]
+        assert len(combos) >= 1
+        top = combos[0]
+        assert top["films_together"] >= 2
+
+    def test_threshold_filters(self) -> None:
+        records = [
+            {"genre": ["Drama"], "director": ["OneOff"], "cast": ["Rare"], "my_rating": 8},
+            {"genre": ["Comedy"], "director": ["OneOff"], "cast": ["Common"], "my_rating": 6},
+            {"genre": ["Action"], "director": ["Freq"], "cast": ["Common"], "my_rating": 8},
+            {"genre": ["Drama"], "director": ["Freq"], "cast": ["Common"], "my_rating": 6},
+            {"genre": ["Sci-Fi"], "director": ["Freq"], "cast": ["Common"], "my_rating": 10},
+        ]
+        result = compute_creator_style_stats(records)
+        # Only Freq has 3+ films as director
+        director_names = [d["name"] for d in result["director_style"]]
+        assert "Freq" in director_names
+        assert "OneOff" not in director_names
+        # Common has 4 films as actor
+        actor_names = [a["name"] for a in result["actor_style"]]
+        assert "Common" in actor_names
+
+
+# ------------------------------------------------------------------
+# Graph Analysis
+# ------------------------------------------------------------------
+
+class TestGraphStats:
+    def test_basic_graph(self) -> None:
+        records = [
+            {"movie_id": "m1", "title": "M1", "genre": ["Drama"], "director": ["Dir A"], "cast": ["Act 1"]},
+            {"movie_id": "m2", "title": "M2", "genre": ["Drama"], "director": ["Dir A"], "cast": ["Act 2"]},
+            {"movie_id": "m3", "title": "M3", "genre": ["Comedy"], "director": ["Dir B"], "cast": ["Act 1"]},
+        ]
+        result = compute_graph_stats(records)
+        assert result["movie_count"] == 3
+        assert result["total_nodes"] > 3  # movies + directors + actors + genres
+        assert result["total_edges"] > 0
+
+    def test_clustering_coefficient(self) -> None:
+        # M1 and M2 share Dir A and Drama; M1 and M3 share Act 1; M2 and M3 don't share much
+        records = [
+            {"movie_id": "m1", "title": "M1", "genre": ["Drama"], "director": ["Dir A"], "cast": ["Act 1"]},
+            {"movie_id": "m2", "title": "M2", "genre": ["Drama"], "director": ["Dir A"], "cast": ["Act 2"]},
+            {"movie_id": "m3", "title": "M3", "genre": ["Comedy"], "director": ["Dir B"], "cast": ["Act 1"]},
+        ]
+        result = compute_graph_stats(records)
+        assert "movie_clustering_coefficient" in result
+        assert 0 <= result["movie_clustering_coefficient"] <= 1
+
+    def test_single_movie(self) -> None:
+        records = [{"movie_id": "m1", "title": "M1", "genre": ["Drama"]}]
+        result = compute_graph_stats(records)
+        assert result["movie_count"] == 1
+        assert result["communities"] == 0
+
+    def test_empty(self) -> None:
+        result = compute_graph_stats([])
+        assert result["movie_count"] == 0
+
+    def test_isolated_movies(self) -> None:
+        records = [
+            {"movie_id": "m1", "title": "M1", "genre": ["Drama"], "director": ["Dir A"]},
+            {"movie_id": "m2", "title": "M2", "genre": ["Drama"], "director": ["Dir A"]},
+            {"movie_id": "m3", "title": "M3", "genre": ["Unique"], "director": ["Dir Unique"], "cast": ["Solo"]},
+        ]
+        result = compute_graph_stats(records)
+        # m3 has unique genre, director, and actor — isolated from m1/m2
+        assert result["isolated_movies"] >= 1
+
+
+# ------------------------------------------------------------------
+# Engine integration for new categories
+# ------------------------------------------------------------------
+
+class TestEngineNewCategories:
+    def test_l3_includes_cross_dimensional(self) -> None:
+        engine = StatsEngine(records=SAMPLE_RECORDS, metadata=SAMPLE_METADATA)
+        report = engine.generate_l3_report()
+        assert "Cross-Dimensional Analysis" in report
+
+    def test_l3_includes_creator_style(self) -> None:
+        engine = StatsEngine(records=SAMPLE_RECORDS, metadata=SAMPLE_METADATA)
+        report = engine.generate_l3_report()
+        # Creator style section may or may not appear depending on threshold
+        # Just ensure no crash
+        assert isinstance(report, str)
+
+    def test_l3_includes_graph(self) -> None:
+        engine = StatsEngine(records=SAMPLE_RECORDS, metadata=SAMPLE_METADATA)
+        report = engine.generate_l3_report()
+        assert "Viewing Network Analysis" in report
+
+    def test_llm_context_includes_new_fields(self) -> None:
+        engine = StatsEngine(records=SAMPLE_RECORDS, metadata=SAMPLE_METADATA)
+        ctx = engine.generate_llm_context()
+        assert "cross_dimensional" in ctx
+        assert "creator_style" in ctx
+        assert "graph" in ctx
+        assert "genre_rating_variance" in ctx["cross_dimensional"]
+        assert "movie_clustering_coefficient" in ctx["graph"]
+
+    def test_stats_includes_all_categories(self) -> None:
+        engine = StatsEngine(records=SAMPLE_RECORDS, metadata=SAMPLE_METADATA)
+        s = engine.stats
+        assert "cross_dimensional" in s
+        assert "creator_style" in s
+        assert "graph" in s

@@ -53,9 +53,10 @@ def cmd_analyze(args: argparse.Namespace) -> int:
         return 1
 
     stats_only = args.stats_only
+    mbti = getattr(args, "mbti", False)
     output_dir = Path(args.output)
 
-    # LLM is only needed for L2/L4
+    # LLM is only needed for L2/L4/L6
     llm = None
     if not stats_only:
         from douban2soul.analysis.llm_client import LLMClientFactory, AnalysisConfig
@@ -76,8 +77,15 @@ def cmd_analyze(args: argparse.Namespace) -> int:
             print('    export LLM_API_KEY="sk-xxx" LLM_BASE_URL="https://..." # for openai-compat')
             return 1
 
-    mode = "Statistics Only (L1 + L3)" if stats_only else "Full Analysis (L1-L5)"
-    total_steps = 3 if stats_only else 6
+    if stats_only:
+        mode = "Statistics Only (L1 + L3)"
+        total_steps = 3
+    elif mbti:
+        mode = "Full Analysis + MBTI (L1-L6)"
+        total_steps = 7
+    else:
+        mode = "Full Analysis (L1-L5)"
+        total_steps = 6
 
     print("=" * 60)
     print("Douban2Soul - Movie Record Personality Profile Analysis")
@@ -130,6 +138,12 @@ def cmd_analyze(args: argparse.Namespace) -> int:
             llm_context, l2_report, l4_report,
         )
         save_report(output_dir, "05_comprehensive_report.md", l5_report)
+
+        if mbti:
+            step += 1
+            print(f"\n[{step}/{total_steps}] Generating L6 MBTI tendency analysis (using LLM)...")
+            l6_report = profiler.generate_mbti_analysis(llm_context, l2_report)
+            save_report(output_dir, "06_mbti_analysis.md", l6_report)
 
     print("\n" + "=" * 60)
     print("Analysis complete!")
@@ -233,6 +247,8 @@ def main():
                            help="Stream LLM output to terminal in real-time")
     p_analyze.add_argument("--stats-only", action="store_true",
                            help="Generate only L1+L3 statistics reports (no LLM needed)")
+    p_analyze.add_argument("--mbti", action="store_true",
+                           help="Include optional L6 MBTI tendency analysis (requires LLM)")
 
     # --- scrape ---
     p_scrape = subparsers.add_parser(

@@ -10,10 +10,13 @@ Produces three output targets from one data pass:
 from douban2soul.statistics.categories import (
     compute_cast_stats,
     compute_comment_stats,
+    compute_creator_style_stats,
+    compute_cross_dimensional_stats,
     compute_crowd_comparison,
     compute_director_stats,
     compute_genre_stats,
     compute_geography_stats,
+    compute_graph_stats,
     compute_habit_stats,
     compute_rating_stats,
     compute_taste_extremes,
@@ -66,6 +69,9 @@ class StatsEngine:
                 "habits": compute_habit_stats(m),
                 "cast": compute_cast_stats(m),
                 "taste_extremes": compute_taste_extremes(m),
+                "cross_dimensional": compute_cross_dimensional_stats(m),
+                "creator_style": compute_creator_style_stats(m),
+                "graph": compute_graph_stats(m),
             }
         return self._stats
 
@@ -144,7 +150,7 @@ class StatsEngine:
     # ------------------------------------------------------------------
 
     def generate_l3_report(self) -> str:
-        """L3: Dimensional deep analysis (Categories B-I)."""
+        """L3: Dimensional deep analysis (Categories B-K)."""
         s = self.stats
         t = s["temporal"]
         g = s["genre"]
@@ -154,6 +160,8 @@ class StatsEngine:
         h = s["habits"]
         cast = s["cast"]
         taste = s["taste_extremes"]
+        cross = s["cross_dimensional"]
+        creator = s["creator_style"]
 
         report = """# L3: Dimensional Deep Analysis
 
@@ -327,6 +335,79 @@ class StatsEngine:
                     report += f"- \u300a{title}\u300b: {my} vs {crowd_r}\n"
                 report += "\n"
 
+        # J. Cross-Dimensional Analysis
+        report += """## Cross-Dimensional Analysis
+
+"""
+        if cross["genre_rating_variance"]:
+            report += "### Genre Rating Variance\n"
+            report += "| Genre | Variance | Signal |\n"
+            report += "|-------|----------|--------|\n"
+            for g, var in list(cross["genre_rating_variance"].items())[:10]:
+                signal = "Discerning" if var > 4.0 else "Consistent"
+                report += f"| {g} | {var:.2f} | {signal} |\n"
+            report += "\n"
+
+        if cross["comment_rating_delta"] != 0:
+            delta = cross["comment_rating_delta"]
+            trigger = "lower-rated" if delta < 0 else "higher-rated"
+            report += f"### Comment Trigger\n"
+            report += f"- Rating delta (with vs without comment): {delta:+.2f}\n"
+            report += f"- Comments tend to accompany {trigger} films\n\n"
+
+        # K. Creator Style
+        if creator["director_style"] or creator["actor_style"]:
+            report += """## Creator Style Analysis
+
+"""
+            if creator["director_style"]:
+                report += "### Director Genre Affinity (\u22653 films)\n"
+                report += "| Director | Films | Dominant Genre | Concentration |\n"
+                report += "|----------|-------|----------------|---------------|\n"
+                for ds in creator["director_style"][:10]:
+                    report += (
+                        f"| {ds['name']} | {ds['film_count']} "
+                        f"| {ds['dominant_genre']} | {ds['genre_concentration'] * 100:.0f}% |\n"
+                    )
+                report += "\n"
+
+            if creator["actor_style"]:
+                report += "### Actor Genre Affinity (\u22653 films)\n"
+                report += "| Actor | Films | Dominant Genre | Cross-Genre Expansion |\n"
+                report += "|-------|-------|----------------|----------------------|\n"
+                for a_s in creator["actor_style"][:10]:
+                    report += (
+                        f"| {a_s['name']} | {a_s['film_count']} "
+                        f"| {a_s['dominant_genre']} | {a_s['cross_genre_expansion'] * 100:.0f}% |\n"
+                    )
+                report += "\n"
+
+            if creator["top_director_actor_combos"]:
+                report += "### Favorite Director-Actor Combinations\n"
+                for combo in creator["top_director_actor_combos"][:5]:
+                    report += (
+                        f"- {combo['director']} × {combo['actor']}"
+                        f" ({combo['films_together']} films)\n"
+                    )
+                report += "\n"
+
+        # L. Graph Analysis
+        graph = s["graph"]
+        if graph["movie_count"] >= 2:
+            clustering = graph.get("movie_clustering_coefficient", 0)
+            taste_signal = "interconnected (cohesive taste)" if clustering > 0.5 else "exploratory (diverse taste)"
+            report += f"""## Viewing Network Analysis
+
+- **Graph nodes**: {graph['total_nodes']} ({graph['movie_count']} movies + entities)
+- **Graph edges**: {graph['total_edges']}
+- **Communities detected**: {graph['communities']}
+- **Connected components**: {graph['connected_components']}
+- **Average movie degree**: {graph['avg_movie_degree']}
+- **Movie clustering coefficient**: {clustering:.3f} ({taste_signal})
+- **Isolated movies** (no shared entity): {graph.get('isolated_movies', 0)}
+
+"""
+
         return report
 
     # ------------------------------------------------------------------
@@ -417,5 +498,24 @@ class StatsEngine:
             "taste_extremes": {
                 "hidden_gems": s["taste_extremes"]["hidden_gems"][:5],
                 "avoid_zone": s["taste_extremes"]["avoid_zone"][:5],
+            },
+            "cross_dimensional": {
+                "genre_rating_variance": s["cross_dimensional"]["genre_rating_variance"],
+                "director_rating_consistency": s["cross_dimensional"]["director_rating_consistency"],
+                "actor_rating_consistency": s["cross_dimensional"]["actor_rating_consistency"],
+                "comment_rating_delta": s["cross_dimensional"]["comment_rating_delta"],
+                "hidden_gems_by_genre": s["cross_dimensional"]["hidden_gems_by_genre"],
+            },
+            "creator_style": {
+                "director_style": s["creator_style"]["director_style"][:10],
+                "actor_style": s["creator_style"]["actor_style"][:10],
+                "top_director_actor_combos": s["creator_style"]["top_director_actor_combos"][:5],
+            },
+            "graph": {
+                "communities": s["graph"]["communities"],
+                "movie_clustering_coefficient": s["graph"].get("movie_clustering_coefficient", 0),
+                "connected_components": s["graph"]["connected_components"],
+                "isolated_movies": s["graph"].get("isolated_movies", 0),
+                "avg_movie_degree": s["graph"]["avg_movie_degree"],
             },
         }

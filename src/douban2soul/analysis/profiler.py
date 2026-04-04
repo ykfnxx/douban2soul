@@ -108,6 +108,19 @@ Expression patterns, expertise level, unique phrasing, humor
 ### 7. Unique Insights
 3-5 unique discoveries about this user
 
+### 8. Structured Comment Metrics (IMPORTANT: output as structured data)
+Analyze the comments and provide the following metrics in a structured format:
+
+**Sentiment Summary:**
+- Overall polarity: [positive/negative/mixed] with percentage breakdown
+- Emotional intensity (1-5 scale): [score]
+
+**Language Style Metrics:**
+- Analytical vs. emotional language ratio: [X% analytical / Y% emotional]
+- First-person pronoun frequency ("我"/"我觉得"): [high/medium/low]
+- Comparative language frequency ("比...好"/"不如"): [high/medium/low]
+- Average comment sophistication (vocabulary richness): [high/medium/low]
+
 Please output in structured Markdown format."""
 
         result = self._call_llm(prompt)
@@ -254,3 +267,82 @@ Report style: professional but accessible, warm yet insightful, well-reasoned.""
 
         result = self._call_llm(prompt)
         return f"# 综合人格分析报告\n\n{result}"
+
+    def generate_mbti_analysis(
+        self,
+        llm_context: dict,
+        l2_report: str,
+    ) -> str:
+        """
+        L6: MBTI tendency analysis (optional).
+
+        Uses LLM to directly infer MBTI probability distributions from
+        statistical data. Outputs probabilities, not deterministic labels.
+        """
+        print("[L6] Generating MBTI tendency analysis...")
+
+        context_json = json.dumps(llm_context, ensure_ascii=False, indent=2)
+
+        prompt = f"""你是一位熟悉 MBTI 和大五人格理论的心理学分析师。基于以下观影数据和评论分析，
+推断该用户在 MBTI 四个维度上的倾向性概率。
+
+**重要：不要输出确定性的四字母类型标签。只输出每个维度的概率分布和推理依据。**
+
+## 结构化统计数据
+{context_json}
+
+## L2 评论分析摘要
+{l2_report[:2000]}
+
+## 各维度分析指引
+
+请逐维度分析，每个维度参考以下数据字段（括号内为 JSON 中的实际路径）：
+
+### E/I（外向/内向）
+参考数据：评论率 (comments.rate)、评论平均长度 (comments.avg_length)、评论长度分布 (comments.length_distribution)
+- 高评论率 + 长评论 + 评论中社交性语言多 → E 倾向
+- 低评论率 + 短评论 → I 倾向
+
+### S/N（感觉/直觉）
+参考数据：类型多样性 (genre.shannon_entropy)、年代跨度 (era.decade_distribution)、国家多样性 (geography.diversity_index)、隐藏佳作 (taste_extremes.hidden_gems)
+- 高多样性 + 跨文化观影 + 发现冷门佳作 → N 倾向
+- 类型集中 + 主流偏好 → S 倾向
+
+### T/F（思考/情感）
+参考数据：大众对齐度 (crowd_comparison.correlation)、评分标准差 (rating.stddev)、评论中分析性vs情感性语言比例（参考L2报告）
+- 低大众对齐 + 高评分方差 + 分析性语言 → T 倾向
+- 高大众对齐 + 情感性语言 → F 倾向
+
+### J/P（判断/知觉）
+参考数据：导演忠诚度 (director.repeat_ratio)、类型集中度 (genre.cluster_scores)、创作者风格集中度 (creator_style.director_style[].genre_concentration)
+- 高导演忠诚 + 类型集中 + 创作者集中 → J 倾向
+- 类型分散 + 跨类型扩展高 → P 倾向
+
+## 输出格式
+
+# MBTI 倾向性分析
+
+⚠️ 声明：MBTI 是一种性格类型参考框架，以下分析基于观影行为推断，
+仅供参考，不构成心理学诊断。
+
+## E/I 维度
+- **E 倾向**: X% | **I 倾向**: Y%
+- 推理依据：（1-2句，引用具体数据）
+
+## S/N 维度
+- **S 倾向**: X% | **N 倾向**: Y%
+- 推理依据：（1-2句）
+
+## T/F 维度
+- **T 倾向**: X% | **F 倾向**: Y%
+- 推理依据：（1-2句）
+
+## J/P 维度
+- **J 倾向**: X% | **P 倾向**: Y%
+- 推理依据：（1-2句）
+
+## 综合画像
+（2-3句总结性描述，不使用四字母标签，用倾向性表述）"""
+
+        result = self._call_llm(prompt)
+        return f"# L6: MBTI 倾向性分析\n\n{result}"
