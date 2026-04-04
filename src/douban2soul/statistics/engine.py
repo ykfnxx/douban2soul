@@ -218,7 +218,7 @@ class StatsEngine:
         if d["total_with_director"] > 0:
             report += f"""## Director Profile
 
-### Top Directors (\u22653 films)
+### Top Directors (\u22652 films)
 | Director | Count | Avg Rating |
 |----------|-------|------------|
 """
