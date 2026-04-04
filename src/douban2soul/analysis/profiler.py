@@ -20,7 +20,7 @@ class ProfileAnalyzer:
     def _call_llm(self, prompt: str) -> str:
         """Call LLM with optional streaming output to stdout."""
         if not self.stream:
-            return self._call_llm(prompt)
+            return self.llm.complete(prompt)
         chunks: list[str] = []
         for chunk in self.llm.stream(prompt):
             sys.stdout.write(chunk)

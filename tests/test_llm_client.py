@@ -1,4 +1,4 @@
-"""Tests for LLM client factory and OpenAI-compatible provider."""
+"""Tests for LLM client factory, OpenAI-compatible provider, and profiler."""
 
 from unittest.mock import MagicMock, patch
 
@@ -6,9 +6,11 @@ import pytest
 
 from douban2soul.analysis.llm_client import (
     AnalysisConfig,
+    BaseLLMClient,
     LLMClientFactory,
     OpenAICompatClient,
 )
+from douban2soul.analysis.profiler import ProfileAnalyzer
 
 
 class TestAnalysisConfig:
@@ -160,3 +162,33 @@ class TestOpenAICompatClient:
         mock_client.chat.completions.create.assert_called_once()
         call_kwargs = mock_client.chat.completions.create.call_args[1]
         assert call_kwargs["stream"] is True
+
+
+class _FakeLLM(BaseLLMClient):
+    def __init__(self):
+        super().__init__(AnalysisConfig())
+
+    def complete(self, prompt: str) -> str:
+        return "fake response"
+
+    def stream(self, prompt):
+        yield "chunk1"
+        yield "chunk2"
+
+
+class TestProfileAnalyzer:
+
+    _RECORD = [{"title": "Test Movie", "myComment": "Great film", "myRating": 8}]
+
+    def test_non_stream_does_not_recurse(self):
+        profiler = ProfileAnalyzer(_FakeLLM(), stream=False)
+        result = profiler.generate_comment_analysis(self._RECORD)
+        assert "fake response" in result
+
+    def test_stream_collects_chunks(self, capsys):
+        profiler = ProfileAnalyzer(_FakeLLM(), stream=True)
+        result = profiler.generate_comment_analysis(self._RECORD)
+        assert "chunk1chunk2" in result
+        captured = capsys.readouterr()
+        assert "chunk1" in captured.out
+        assert "chunk2" in captured.out
