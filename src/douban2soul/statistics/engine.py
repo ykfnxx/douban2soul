@@ -8,6 +8,7 @@ Produces three output targets from one data pass:
 """
 
 from douban2soul.statistics.categories import (
+    compute_cast_stats,
     compute_comment_stats,
     compute_crowd_comparison,
     compute_director_stats,
@@ -15,6 +16,7 @@ from douban2soul.statistics.categories import (
     compute_geography_stats,
     compute_habit_stats,
     compute_rating_stats,
+    compute_taste_extremes,
     compute_temporal_stats,
 )
 from douban2soul.statistics.merge import merge_records_with_metadata
@@ -62,6 +64,8 @@ class StatsEngine:
                 "comments": compute_comment_stats(m),
                 "crowd": compute_crowd_comparison(m),
                 "habits": compute_habit_stats(m),
+                "cast": compute_cast_stats(m),
+                "taste_extremes": compute_taste_extremes(m),
             }
         return self._stats
 
@@ -154,7 +158,7 @@ class StatsEngine:
     # ------------------------------------------------------------------
 
     def generate_l3_report(self) -> str:
-        """L3: Dimensional deep analysis (Categories B-H)."""
+        """L3: Dimensional deep analysis (Categories B-I)."""
         s = self.stats
         t = s["temporal"]
         g = s["genre"]
@@ -162,6 +166,8 @@ class StatsEngine:
         geo = s["geography"]
         crowd = s["crowd"]
         h = s["habits"]
+        cast = s["cast"]
+        taste = s["taste_extremes"]
 
         report = """# L3: Dimensional Deep Analysis
 
@@ -220,6 +226,7 @@ class StatsEngine:
             report += f"""
 ### Genre Diversity
 - **Distinct genres**: {g['genre_diversity']}
+- **Shannon entropy**: {g['genre_shannon_entropy']:.2f}
 
 """
         # D. Director Profile
@@ -301,6 +308,41 @@ class StatsEngine:
 | 150+ min | {h['duration_distribution']['very_long_150plus']} |
 """
 
+        # I. Cast Analysis
+        if cast["total_with_cast"] > 0:
+            report += f"""## Cast Analysis
+
+### Top Actors (\u22652 films)
+| Actor | Count | Avg Rating |
+|-------|-------|------------|
+"""
+            for name, count, avg in cast["top_actors"][:15]:
+                report += f"| {name} | {count} | {avg} |\n"
+
+            report += f"""
+### Actor Loyalty
+- **Repeat actor ratio**: {cast['repeat_actor_ratio'] * 100:.1f}%
+- **Distinct actors**: {cast['distinct_count']}
+
+"""
+
+        # Taste Extremes
+        if taste["hidden_gems"] or taste["avoid_zone"]:
+            report += """## Taste Extremes
+
+"""
+            if taste["hidden_gems"]:
+                report += "### Hidden Gems (user \u22658, crowd <6)\n"
+                for title, my, crowd_r in taste["hidden_gems"][:5]:
+                    report += f"- \u300a{title}\u300b: {my} vs {crowd_r}\n"
+                report += "\n"
+
+            if taste["avoid_zone"]:
+                report += "### Against the Grain (user \u22644, crowd \u22657)\n"
+                for title, my, crowd_r in taste["avoid_zone"][:5]:
+                    report += f"- \u300a{title}\u300b: {my} vs {crowd_r}\n"
+                report += "\n"
+
         return report
 
     # ------------------------------------------------------------------
@@ -335,6 +377,7 @@ class StatsEngine:
                 "top_genres": s["genre"]["top_genres"][:10],
                 "cluster_scores": s["genre"]["cluster_scores"],
                 "diversity_index": s["genre"]["genre_diversity"],
+                "shannon_entropy": s["genre"]["genre_shannon_entropy"],
             },
             "director": {
                 "top_directors": [
@@ -368,5 +411,17 @@ class StatsEngine:
                 "avg_duration": s["habits"]["avg_duration"],
                 "long_film_ratio": s["habits"]["long_film_ratio"],
                 "binge_days": s["habits"]["binge_days"],
+            },
+            "cast": {
+                "top_actors": [
+                    (name, count, avg)
+                    for name, count, avg in s["cast"]["top_actors"][:10]
+                ],
+                "repeat_ratio": s["cast"]["repeat_actor_ratio"],
+                "distinct_count": s["cast"]["distinct_count"],
+            },
+            "taste_extremes": {
+                "hidden_gems": s["taste_extremes"]["hidden_gems"][:5],
+                "avoid_zone": s["taste_extremes"]["avoid_zone"][:5],
             },
         }

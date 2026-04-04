@@ -76,8 +76,8 @@ def cmd_analyze(args: argparse.Namespace) -> int:
             print('    export LLM_API_KEY="sk-xxx" LLM_BASE_URL="https://..." # for openai-compat')
             return 1
 
-    mode = "Statistics Only (L1 + L3)" if stats_only else "Full Analysis (L1-L4)"
-    total_steps = 3 if stats_only else 5
+    mode = "Statistics Only (L1 + L3)" if stats_only else "Full Analysis (L1-L5)"
+    total_steps = 3 if stats_only else 6
 
     print("=" * 60)
     print("Douban2Soul - Movie Record Personality Profile Analysis")
@@ -122,6 +122,14 @@ def cmd_analyze(args: argparse.Namespace) -> int:
         print(f"\n[{step}/{total_steps}] Generating L4 comprehensive profile (using LLM)...")
         l4_report = profiler.generate_final_profile(data, l2_report, l3_report)
         save_report(output_dir, "04_final_profile.md", l4_report)
+
+        step += 1
+        print(f"\n[{step}/{total_steps}] Generating L5 comprehensive Chinese report (using LLM)...")
+        llm_context = stats.generate_llm_context()
+        l5_report = profiler.generate_comprehensive_report(
+            llm_context, l1_report, l2_report, l3_report, l4_report,
+        )
+        save_report(output_dir, "05_comprehensive_report.md", l5_report)
 
     print("\n" + "=" * 60)
     print("Analysis complete!")
