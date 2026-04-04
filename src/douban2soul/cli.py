@@ -66,6 +66,7 @@ def cmd_analyze(args: argparse.Namespace) -> int:
             llm_provider=args.provider,
             model=args.model,
             base_url=args.base_url,
+            max_tokens=args.max_tokens,
         )
         try:
             llm = LLMClientFactory.create(config)
@@ -243,6 +244,8 @@ def main():
                            help="API base URL (required for openai-compat provider)")
     p_analyze.add_argument("--metadata", default=_DEFAULT_METADATA_PATH,
                            help="Path to scraped metadata JSON")
+    p_analyze.add_argument("--max-tokens", type=int, default=16384,
+                           help="Maximum tokens for LLM response (default: 16384)")
     p_analyze.add_argument("--stream", action="store_true",
                            help="Stream LLM output to terminal in real-time")
     p_analyze.add_argument("--stats-only", action="store_true",
