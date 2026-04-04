@@ -365,7 +365,6 @@ class StatsEngine:
                 "rated_count": s["rating"]["rated_count"],
                 "comment_count": s["comments"]["comment_count"],
                 "metadata_coverage": round(metadata_count / total, 3) if total else 0,
-                "date_range": s["temporal"]["date_range"],
             },
             "rating": {
                 "mean": s["rating"]["mean"],
@@ -397,11 +396,6 @@ class StatsEngine:
                 "mean_gap": s["crowd"]["rating_gap_mean"],
                 "correlation": s["crowd"]["crowd_alignment_score"],
             },
-            "temporal": {
-                "decade_distribution": s["temporal"]["decade_distribution"],
-                "recency_ratio": s["temporal"]["recency_ratio"],
-                "peak_years": s["temporal"]["peak_years"],
-            },
             "comments": {
                 "rate": s["comments"]["comment_rate"],
                 "avg_length": s["comments"]["avg_length"],
@@ -410,7 +404,6 @@ class StatsEngine:
             "habits": {
                 "avg_duration": s["habits"]["avg_duration"],
                 "long_film_ratio": s["habits"]["long_film_ratio"],
-                "binge_days": s["habits"]["binge_days"],
             },
             "cast": {
                 "top_actors": [

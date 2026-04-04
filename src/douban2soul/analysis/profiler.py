@@ -177,14 +177,16 @@ Report style: professional but accessible, warm yet insightful, well-reasoned.""
     def generate_comprehensive_report(
         self,
         llm_context: dict,
-        l1_report: str,
         l2_report: str,
-        l3_report: str,
         l4_report: str,
     ) -> str:
         """
         L5: Comprehensive Chinese personality analysis report.
-        Synthesizes all previous analysis layers into a single Chinese report.
+        Synthesizes structured statistics + L2/L4 LLM analysis into a single Chinese report.
+
+        Uses llm_context (structured JSON) for all statistical data — this already
+        contains everything from L1/L3 in structured form, so no truncation needed.
+        L2 and L4 are LLM-generated content not available elsewhere.
         """
         print("[L5] Generating comprehensive Chinese report...")
 
@@ -192,20 +194,16 @@ Report style: professional but accessible, warm yet insightful, well-reasoned.""
 
         prompt = f"""你是一位专业的电影心理学分析师。请基于以下全部分析数据，生成一份完整的中文人格分析报告。
 
-## 结构化统计数据
+注意：以下数据不包含任何观影时间信息（豆瓣标记时间不等于观影时间），请不要对观影时间做任何推断。
+
+## 结构化统计数据（完整）
 {context_json}
 
-## L1 基础统计报告
-{l1_report[:2000]}
-
 ## L2 评论语义分析
-{l2_report[:2500]}
-
-## L3 维度深度分析
-{l3_report[:3000]}
+{l2_report}
 
 ## L4 综合人格画像
-{l4_report[:2500]}
+{l4_report}
 
 ## 报告要求
 

@@ -450,6 +450,13 @@ class TestStatsEngine:
         assert "taste_extremes" in ctx
         assert "shannon_entropy" in ctx["genre"]
 
+    def test_llm_context_excludes_temporal_signals(self) -> None:
+        engine = StatsEngine(records=SAMPLE_RECORDS, metadata=SAMPLE_METADATA)
+        ctx = engine.generate_llm_context()
+        assert "temporal" not in ctx
+        assert "date_range" not in ctx["overview"]
+        assert "binge_days" not in ctx["habits"]
+
     def test_stats_cached(self) -> None:
         engine = StatsEngine(records=SAMPLE_RECORDS, metadata=SAMPLE_METADATA)
         stats1 = engine.stats

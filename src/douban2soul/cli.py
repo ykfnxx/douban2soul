@@ -127,7 +127,7 @@ def cmd_analyze(args: argparse.Namespace) -> int:
         print(f"\n[{step}/{total_steps}] Generating L5 comprehensive Chinese report (using LLM)...")
         llm_context = stats.generate_llm_context()
         l5_report = profiler.generate_comprehensive_report(
-            llm_context, l1_report, l2_report, l3_report, l4_report,
+            llm_context, l2_report, l4_report,
         )
         save_report(output_dir, "05_comprehensive_report.md", l5_report)
 
